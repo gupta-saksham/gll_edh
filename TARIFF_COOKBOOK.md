@@ -24,6 +24,21 @@ are all just different return values from this one function.
 a controller's `carry`. It defaults to `TariffMemory` (see "carrying state"
 below); a stateless tariff just returns it unchanged.
 
+## What you are settling
+
+`e_grid_kwh` — the net **active** energy exchanged with the grid at each
+connection point over the interval. That is **inverter output minus household
+load**: the meter reading, not the inverter's own production and not the
+household's own consumption. A household chooses its inverter setpoint and
+is billed on what that came to once its own load was served. (The household
+side calls the same quantity `p_grid_kw`; see
+[`CONTROLLER_COOKBOOK.md`](CONTROLLER_COOKBOOK.md).)
+
+Units carry the physics: `_kw` is active, `_kvar` reactive, `_kva` apparent,
+`_kwh`/`_kvarh` the matching energies, with a `p_`/`q_` prefix wherever both
+halves exist at the same terminal. Reactive flow is visible to a tariff — see
+below — but it is not what the baseline settles.
+
 ## What you can see
 
 `grid` is a [`GridView`](sandbox/observation.py) — plain SI, no environment
@@ -31,19 +46,23 @@ state, no per-unit conversions, no bus-versus-connection-point index hops.
 
 | field | shape | unit | meaning |
 |---|---|---|---|
-| `net_kwh` | `(18,)` | kWh | what each connection point pushed (+) or drew (-) this interval |
-| `net_kw` | `(18,)` | kW | the same, as a power |
+| `e_grid_kwh` | `(18,)` | kWh | net **active** exchange with the grid, + = pushed in |
+| `p_grid_kw` | `(18,)` | kW | the same, as a power |
+| `q_grid_kvar` | `(18,)` | kvar | its **reactive** counterpart — see the warning below |
 | `voltage_pu` | `(18,)` | pu | voltage at each connection point — see the warning below |
-| `transformer_kw` | scalar | kW | substation throughput, + = the feeder drawing, - = exporting |
+| `transformer_kw` | scalar | kW | substation active throughput, + = the feeder drawing, - = exporting |
+| `transformer_kvar` | scalar | kvar | substation reactive throughput |
 | `losses_kw` | scalar | kW | what the network itself burned — quadratic in flow |
 | `hour` | scalar | h | 0–24, the settled interval |
-| `energy_chf` | `(18,)` | CHF | what ewz's real, published fair-LEG rate would settle this interval as |
+| `fair_leg_chf` | `(18,)` | CHF | the **whole settlement** fair LEG would produce this interval |
 | `has_inverter` | `(18,)` bool | — | who can act at all — a static equipment fact, not a live reading |
 
-**`energy_chf` is an input, not a base you have to build on.** It is there
-because pricing energy from scratch is work you may not want to redo, and the
-shipped default does build on it. Use it whole, use the parts you want, or
-compute the interval's settlement without touching it.
+**`fair_leg_chf` is an input, not a base you have to build on.** It is a
+finished CHF figure, not a rate — energy, grid fee and public duties already
+folded in — and it is there because pricing energy from scratch is work you
+may not want to redo. The shipped default does build on it. Use it whole,
+use the parts you want, or compute the interval's settlement without touching
+it.
 
 **`has_inverter` is who they are, not what they did this interval.** It
 comes from the population's fixed asset mix and never changes within an
@@ -51,13 +70,82 @@ episode, the same way a real rate class doesn't depend on this week's meter
 reading. It exists so a tariff can say what it means directly — an
 unconditional floor for tenants, a different rate class for `large_flex` —
 instead of reverse-engineering an identity from behaviour (a tenant already
-reveals itself every interval anyway: no inverter, no battery, `net_kwh`
+reveals itself every interval anyway: no inverter, no battery, `e_grid_kwh`
 never driven by anything but load). Keep it to that use. Pricing what a
-connection point *did* — its flow, its voltage — belongs to `net_kwh` /
+connection point *did* — its flow, its voltage — belongs to `e_grid_kwh` /
 `voltage_pu`; `has_inverter` is not a channel for smuggling behavioural
 information a tariff isn't supposed to have.
 
-### Exposure is not contribution
+## Reactive power: you can see it, be careful pricing it
+
+Unlike a household, a network operator measures reactive flow, so `GridView`
+gives you `q_grid_kvar` per connection point and `transformer_kvar` at the
+substation. It is not a rounding error here — the agents' connection points
+carry more than 0.1 kvar on **90 %** of intervals, averaging −1.03 kvar and
+reaching −6.4 kvar.
+
+**But it is almost entirely not chosen.** On a Swiss LV connection the Q(U)
+grid code (NE7 §4.3.2) sets each inverter's reactive power from the voltage
+at its own bus, and the remainder is the load's own power factor. A household
+can move it only indirectly, by changing the active power that moves its
+voltage. So a charge on `q_grid_kvar` is the reactive version of a charge on
+`voltage_pu`: it prices **exposure, not contribution**, and gives almost no
+marginal incentive. Read "Exposure is not contribution" below — it applies
+here word for word.
+
+Two places where reactive is genuinely worth reaching for:
+
+- **Losses.** Reactive current heats the same conductors as active current,
+  so the cost reactive flow imposes is already inside `losses_kw` — and
+  `losses_kw` is caused by everybody together, which is the honest thing to
+  share out.
+- **Substation loading.** A transformer is rated in **kVA**, not kW, so what
+  its thermal limit actually sees is `hypot(transformer_kw,
+  transformer_kvar)`. A demand charge written against apparent power is more
+  faithful to the binding constraint than one written against active power
+  alone.
+
+The baseline does not bill reactive, and neither do real Swiss LV residential
+tariffs — reactive charges appear on larger commercial connections. Your
+tariff returns a whole settlement, so it *may* price whatever it can see. It
+just has to be able to say what behaviour it is trying to change.
+
+## What fair LEG is, and is not
+
+**Fair LEG is not a product ewz sells.** It is assembled from ewz's real,
+published 2026 rate components — the EEA feed-in tariff, ewz.natur energy,
+grid usage, public duties — with one construction on top. Trading inside a
+local electricity community waives 40 % of the grid usage fee, and fair LEG
+splits that saving **evenly** between injector and consumer: every member
+gains the same 1.19 Rp./kWh off-peak, 2.38 Rp./kWh peak, against its own
+fallback rate. Symmetric by construction, hence the name.
+
+ewz's actual LEG product is **Solarquartier**, and `gll_env` ships it too
+(`payments: solarquartier`). It grants the consumer the whole 40 % rebate but
+charges a flat 13 Rp./kWh LEG energy rate — well above what ewz.natur charges
+off-peak. Net effect for a pure consumer: about **5.7 Rp./kWh worse**
+off-peak inside the community than outside it, and about 1.1 Rp./kWh better
+at peak. The producer captures nearly all of the community's saving.
+
+Solarquartier would be the easier baseline and the wrong one. Beating a tariff
+that actively penalises consumers is a trivial win that says nothing about
+the network. So the status quo modelled here is the *fair* version — a LEG
+whose incentives between the two sides are already balanced — and beating it
+has to mean saying something about congestion, diversity and ramp, which is
+the question the challenge is actually about.
+
+## `check()` will not show your tariff working
+
+This trips up almost everyone. **No household can see a price during an
+episode**, so running your tariff against an unchanged controller changes the
+settlement column and *nothing physical* — identical peaks, identical ramps,
+identical everything. That is not your tariff failing; it is what a tariff
+is.
+
+`check()` does not tune. **`score()` does**, and it is the only thing that can
+show a tariff working. Budget about two minutes for it.
+
+## Exposure is not contribution
 
 The tempting locational tariff is "charge each connection point in
 proportion to the voltage at its own bus." Resist it, or at least know what
@@ -76,7 +164,7 @@ much the binding quantity (voltage, transformer throughput, losses) moves
 per kW of *this* connection point's own injection. `voltage_pu` is an input
 to estimating that, not the answer on its own.
 
-Worth noting the contrast with fair LEG's `energy_chf`, which is also
+Worth noting the contrast with fair LEG's `fair_leg_chf`, which is also
 interdependent — your settlement depends on what everyone else did, through
 the community match ratio. The difference is that the match ratio applies to
 everyone equally and pro rata, so interdependence there does not become a
@@ -88,8 +176,8 @@ charge for where you happen to live.
 connection points are tenants with no inverter and therefore no agent; they
 are absent from the reward array entirely, and they are exactly the
 households a badly designed tariff harms. `GridView` is already shaped
-`(num_pq,)` everywhere, so returning something the same shape as `grid.net_kwh`
-gets this right automatically.
+`(num_pq,)` everywhere, so returning something the same shape as
+`grid.e_grid_kwh` gets this right automatically.
 
 **It must not print money.** Checked *empirically*, after the fact, against
 what fair LEG itself collects — see `revenue_adequate` in
@@ -100,24 +188,57 @@ can still pass; the tolerance is `REVENUE_TOLERANCE = 0.10` of the reference
 total. One that simply pays everybody — a subsidy dressed as a price — cannot,
 and is disqualified rather than ranked.
 
+The gate is run with **behaviour held fixed**, against the base controller at
+its default parameters. That is deliberate: a tariff that makes households
+export less collects less, and that is the tariff working, not the tariff
+printing money. Comparing re-tuned cells would fail every tariff that
+succeeded.
+
 It should also be **worth anticipating**: households tune against expected
 structure across episodes, not against any one price. If your tariff is
 unpredictable even in distribution, no controller can respond to it and
 you've built a lottery, not a mechanism.
 
+## The shipped default is a bad tariff. Here is how it fails.
+
+`sandbox/my_idea.py`'s `my_tariff` ships as fair LEG's settlement plus a
+crude aggregate congestion surcharge. Run `score()` on a fresh checkout and
+it looks like a triumph on the headline columns — and it is not. It is the
+worked example of the failure mode the jury exists to catch:
+
+| | export peak | ramp | coincid | curtail | CHF |
+|---|---|---|---|---|---|
+| `fair_leg/base` | 66.2 kW | 16.5 kW | 0.777 | 1.8 % | 311 |
+| `submitted/submitted` | **38.6 kW** | **10.8 kW** | 0.855 | **26.2 %** | **156** |
+
+The export peak drops by 42 % and the ramp by a third — **because** the tuned
+household simply caps its exports, so a quarter of the week's generation is
+thrown away and the community's earnings halve. And the coincidence factor
+gets *worse*, from 0.777 to 0.855: the aggregate signal has synchronised the
+population harder than no signal at all.
+
+A tariff that flattens the feeder by throwing solar away has not solved
+anything. It has bought two metrics with three others, and `curtailed_share`,
+`community_settlement_chf` and `coincidence_factor` are in the jury precisely
+so it cannot do that quietly. Read the whole row, not the first two columns.
+
+The second thing wrong with it is structural: the congestion term is an
+**aggregate** signal. Every household on the feeder sees the same number
+every interval, which is the herding problem restated as a price — a
+population tuned against a common signal can synchronise *harder*, not less.
+Watch `coincid` when you run it.
+
 ## From the default to something ambitious
 
-`sandbox/my_idea.py`'s `my_tariff` ships with fair LEG's `energy_chf` plus a
-crude, aggregate congestion surcharge. Treat it as tier zero. Some directions
-from there, roughly in order of how much of the default survives:
+Directions from there, roughly in order of how much of the default survives:
 
 1. **Retune the same shape.** Change `headroom_kwh` / `price_chf_per_kwh`.
    Cheapest experiment, tells you if the mechanism is even in the right
-   ballpark — see "scale" below.
-2. **Make the congestion term locational** instead of aggregate. Right now
-   every household sees the same congestion number every interval, which is
-   exactly the herding problem restated as a price: a population tuned
-   against an aggregate signal can synchronise *harder*, not less.
+   ballpark — see "scale" below. Start by asking what price stops short of
+   inducing curtailment.
+2. **Make the congestion term locational** instead of aggregate, so that
+   households at different points on the feeder face different prices and
+   have a reason to act at different times.
 3. **Add a second term** alongside it — a time-of-use schedule on
    `grid.hour`, a demand charge on `grid.transformer_kw`, whatever your idea
    needs.
@@ -132,9 +253,9 @@ intervals (see "carrying state" below).
 ## Wiring it in
 
 `check()` and `score()` pick up whatever `my_tariff` currently is and wrap it
-via [`tariff_from_settlement`](sandbox/tariff.py), so editing the function in
-`my_idea.py` is all that is required. To build one by hand — for a notebook,
-or a sweep of your own:
+via [`tariff_from_settlement`](sandbox/tariff.py) with `TARIFF_PARAMS`, so
+editing the function and its parameters in `my_idea.py` is all that is
+required. To build one by hand — for a notebook, or a sweep of your own:
 
 ```python
 from sandbox.tariff import tariff_from_settlement
@@ -163,7 +284,7 @@ class MyCarry:
     congestion_ewma_kwh: chex.Array
 
 def my_tariff(grid, carry, params):
-    aggregate_kwh = jnp.sum(grid.net_kwh)
+    aggregate_kwh = jnp.sum(grid.e_grid_kwh)
     smoothed = 0.9 * carry.congestion_ewma_kwh + 0.1 * jnp.abs(aggregate_kwh)
     excess = jnp.maximum(smoothed - params["headroom_kwh"], 0.0)
     ...
@@ -218,11 +339,11 @@ are concrete, `print` works, and the traceback points at your own line.
 
 | what you see | what it means |
 |---|---|
-| `A tariff must settle all 18 connection points` | you returned `(num_agents,)`, or a scalar. Return something shaped like `grid.net_kwh`. |
+| `A tariff must settle all 18 connection points` | you returned `(num_agents,)`, or a scalar. Return something shaped like `grid.e_grid_kwh`. |
 | `TracerBoolConversionError` | a Python `if` on a value that depends on `grid`. Use `jnp.where`, or move to the NumPy tier. |
 | `scan body function carry ... must have equal types` | your carry changed shape or dtype between intervals. It must be fixed in both. |
 
-## Writing it in NumPy
+## Writing it in NumPy — and why you probably shouldn't ship it
 
 Simpler than the controller's `@numpy_controller`: a tariff already runs
 once per interval over the whole feeder, not once per household, so there is
@@ -234,8 +355,8 @@ from sandbox.numpy_bridge import numpy_tariff
 @numpy_tariff
 def my_tariff(grid, carry, params):
     if grid["hour"] > 18:                      # a real branch
-        return -0.20 * grid["net_kwh"], carry
-    return -0.10 * grid["net_kwh"], carry
+        return -0.20 * grid["e_grid_kwh"], carry
+    return -0.10 * grid["e_grid_kwh"], carry
 ```
 
 `grid` arrives as a dict of plain NumPy arrays — see
@@ -245,6 +366,15 @@ numbers with `@numpy_tariff(params=TARIFF_PARAMS)`. See
 [`sandbox/numpy_bridge.py`](sandbox/numpy_bridge.py) for the two rules that
 survive into this tier — fixed-shape carry, no side effects — identical to the
 controller's NumPy tier.
+
+**Write the finished tariff in `jnp` if you possibly can.** The host round
+trip is cheap on a single rollout and expensive on the scoring path, where
+`score()` runs four cells with a tuning sweep inside each. Under JAX that
+sweep is one compile `vmap`'d across every candidate and seed at once; the
+NumPy tier cannot batch and pays a callback per interval per rollout.
+Measured on a controller: 3.4× on a single week, **8×** on a tuning sweep,
+and a `score()` that runs in about two minutes under `jnp` takes roughly
+twenty. Prototype in NumPy if it helps; port before you iterate.
 
 ## It's a Stackelberg game, and that's the point
 
@@ -261,8 +391,9 @@ rational household *does* with it.
 Both bottom cells of the scorer ([`sandbox/evaluate.py`](sandbox/evaluate.py))
 best-respond to your tariff — the follower move is never skipped, because a
 tariff nobody responds to has changed nothing physical. What differs is
-*which* controller is doing the responding: the one households run today, or
-the one you wrote.
+*which* controller is doing the responding, and each is tuned over **its own**
+parameter grid: the installed base over `TUNING_GRID` in
+[`sandbox/controller.py`](sandbox/controller.py), yours over `TUNE_OVER`.
 
 That distinction matters because you are only ever the leader. ewz publishes
 a tariff; households then run whatever serves their own bill. You cannot put
@@ -278,15 +409,15 @@ best-respond within the strategy it already implements. The gap, the
 **co-design premium**, is how much of your result needs the market to supply
 the controller your price is designed to make worth building.
 
-"Best response" is bounded on purpose: `tune()` searches the parameters
-[`TUNE_OVER`](sandbox/my_idea.py) lists, inside whichever controller the cell
-is running. It is not an unconstrained search over every controller anyone
-could write — that would be a research project rather than a scoring step, and
-it would leave the two bottom cells with nothing in common to compare. Pinning
-the follower's strategy space is what makes the premium mean something. It
-also means `TUNE_OVER` is part of your submission: a controller whose good
-parameters are not in the sweep will be scored at parameters nobody would
-actually choose.
+"Best response" is bounded on purpose: `tune()` searches a declared parameter
+grid inside whichever controller the cell is running. It is not an
+unconstrained search over every controller anyone could write — that would be
+a research project rather than a scoring step, and it would leave the two
+bottom cells with nothing in common to compare. Pinning the follower's
+strategy space is what makes the premium mean something. It also means
+[`TUNE_OVER`](sandbox/my_idea.py) is part of your submission: a controller
+whose good parameters are not in the sweep will be scored at parameters
+nobody would actually choose.
 
 ## Scale, and why nothing happened
 
@@ -299,20 +430,30 @@ is an order of magnitude below the headline. A price that looks punitive in
 aggregate can be nearly invisible at the margin, which is the first thing to
 check when a tariff seems to change nothing.
 
+The failure at the other end is just as easy and less obvious: a price that
+*does* bite makes curtailment the household's cheapest response, and you buy
+a flat feeder by spilling generation. Both edges are one `score()` apart.
+
 Print `grid.*` and your intermediate terms under `check(fast=False)` before
 concluding your idea does not move anybody.
 
 ## Checklist
 
 - [ ] Returns `(settlement_chf, carry)`, `settlement_chf` shaped `(num_pq,)`
-      matching `grid.net_kwh`
+      matching `grid.e_grid_kwh`
 - [ ] Carry has fixed shape and dtype
 - [ ] Runs under `check(fast=False)` without an exception
-- [ ] `score()` reports `revenue adequacy: PASS` (or you understand exactly why
-      not) — `check()` is too short to run the gate
+- [ ] Judged with `score()`, not `check()` — `check()` cannot show a tariff working
+- [ ] `score()` reports `revenue adequacy: PASS` (or you understand exactly why not)
+- [ ] `curtailed_share` has not blown up — a flat feeder bought by spilling
+      solar is not a solution
+- [ ] `coincid` has not got worse — an aggregate signal can synchronise the
+      population harder than no signal at all
 - [ ] Parameters are the right order of magnitude — verified against the
       marginal exposure, not the headline number
-- [ ] Tenants (`p_min_kw == p_max_kw == 0`, absent from any agent-indexed
-      array) are not silently harmed by a rule written with prosumers in mind
+- [ ] Tenants (`p_inv_min_kw == p_inv_max_kw == 0`, absent from any
+      agent-indexed array) are not silently harmed by a rule written with
+      prosumers in mind
 - [ ] `has_inverter`, if used, only ever expresses static rate-class intent —
-      never a stand-in for a live reading `net_kwh`/`voltage_pu` already give you
+      never a stand-in for a live reading `e_grid_kwh`/`voltage_pu` already
+      gives you
