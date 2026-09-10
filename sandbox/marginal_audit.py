@@ -64,7 +64,8 @@ def audit_marginals(
     # All counterfactuals at an interval share the same state.  Batching them
     # keeps a week-long sampled audit practical while preserving exact step
     # semantics for each action vector.
-    step_batch = jax.jit(jax.vmap(lambda action: env.step(state, action)))
+    step_batch = jax.jit(jax.vmap(env.step, in_axes=(None, 0)))
+    step_one = jax.jit(env.step)
 
     for step in range(n_steps):
         loop_key, decide_key = jax.random.split(loop_key)
@@ -84,11 +85,15 @@ def audit_marginals(
                     )
                     variants.append(actions_kw.at[agent_id].set(perturbed))
                     descriptors.append(
-                        (agent_id, -1 if direction < 0 else 1, float(perturbed - actions_kw[agent_id]))
+                        (
+                            agent_id,
+                            -1 if direction < 0 else 1,
+                            float(perturbed - actions_kw[agent_id]),
+                        )
                     )
 
             normalized = jax.vmap(lambda action: to_action(model, action))(jnp.stack(variants))
-            states, timesteps = step_batch(normalized)
+            states, timesteps = step_batch(state, normalized)
             settlements = np.asarray(timesteps.extras["reward"].settlement_chf)
             energies = np.asarray(jnp.real(states.prosumer_state.s_pq_realized_kvah))
             transformer = np.asarray(jax.vmap(lambda s: _transformer_kw(model, s))(states))
@@ -112,9 +117,7 @@ def audit_marginals(
                         "direction": direction,
                         "requested_delta_kw": requested_delta,
                         "baseline_action_kw": float(actions_kw[agent_id]),
-                        "counterfactual_action_kw": float(
-                            actions_kw[agent_id] + requested_delta
-                        ),
+                        "counterfactual_action_kw": float(actions_kw[agent_id] + requested_delta),
                         "baseline_settlement_chf": own_baseline,
                         "counterfactual_settlement_chf": own_counterfactual,
                         "settlement_delta_chf": own_counterfactual - own_baseline,
@@ -123,16 +126,11 @@ def audit_marginals(
                         ),
                         "baseline_transformer_kw": baseline_transformer,
                         "counterfactual_transformer_kw": counterfactual_transformer,
-                        "transformer_delta_kw": counterfactual_transformer
-                        - baseline_transformer,
+                        "transformer_delta_kw": counterfactual_transformer - baseline_transformer,
                         "baseline_export_stress_kw": max(-baseline_transformer, 0.0),
-                        "counterfactual_export_stress_kw": max(
-                            -counterfactual_transformer, 0.0
-                        ),
+                        "counterfactual_export_stress_kw": max(-counterfactual_transformer, 0.0),
                         "baseline_import_stress_kw": max(baseline_transformer, 0.0),
-                        "counterfactual_import_stress_kw": max(
-                            counterfactual_transformer, 0.0
-                        ),
+                        "counterfactual_import_stress_kw": max(counterfactual_transformer, 0.0),
                     }
                 )
 
@@ -140,8 +138,7 @@ def audit_marginals(
             state = jax.tree_util.tree_map(lambda leaf: leaf[0], states)
             timestep = jax.tree_util.tree_map(lambda leaf: leaf[0], timesteps)
         else:
-            state, timestep = env.step(state, to_action(model, actions_kw))
+            state, timestep = step_one(state, to_action(model, actions_kw))
         carry = next_carry
 
     return rows
-

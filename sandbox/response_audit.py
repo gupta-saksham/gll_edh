@@ -115,7 +115,8 @@ def diagnose_policy(
         diagnostics = {
             "soc_kwh": post_local.soc_kwh,
             "soc_headroom_kwh": post_local.soc_headroom_kwh,
-            "battery_full": post_local.soc_headroom_kwh <= 1.0e-4,
+            "battery_full": (post_local.soc_headroom_kwh <= 1.0e-4)
+            & (post_local.soc_kwh + post_local.soc_headroom_kwh > 1.0e-4),
             "voltage_pu": local.voltage_pu,
             "voltage_trend_pu": trend,
             "projection_gap_kw": record["p_inv_realized_kw"] - actions,
@@ -212,29 +213,31 @@ def audit_deviations(
 
     env = build_env(population, time_limit=n_steps, tariff=tariff)
     episode_keys = jax.random.split(key if key is not None else jax.random.PRNGKey(0), seeds)
-    baseline_by_seed = [
-        rollout(controller, population, seed, n_steps=n_steps, env=env) for seed in episode_keys
+    baseline_totals = jax.vmap(
+        lambda seed: rollout(
+            controller, population, seed, n_steps=n_steps, env=env
+        ).settlement_chf.sum(axis=0)
+    )(episode_keys)
+    variants = [
+        _agent_parameter_trees(controller.params, candidate, agent, population.num_agents)
+        for agent in range(population.num_agents)
+        for candidate in candidate_params
     ]
-    baseline_totals = jnp.stack(
-        [trajectory.settlement_chf.sum(axis=0) for trajectory in baseline_by_seed]
-    )
+    stacked = jax.tree_util.tree_map(lambda *xs: jnp.stack(xs), *variants)
+    totals = jax.vmap(
+        lambda params: jax.vmap(
+            lambda seed: _rollout_with_agent_params(
+                controller, population, seed, params, n_steps, env
+            ).settlement_chf.sum(axis=0)
+        )(episode_keys)
+    )(stacked)
 
     records: list[DeviationRecord] = []
     for agent_id, pq_id in enumerate(population.inverter_id):
         baseline_mean = float(baseline_totals[:, pq_id].mean())
         for candidate_index, candidate in enumerate(candidate_params):
-            params = _agent_parameter_trees(
-                controller.params, candidate, agent_id, population.num_agents
-            )
-            deviation = jnp.stack(
-                [
-                    _rollout_with_agent_params(controller, population, seed, params, n_steps, env)
-                    .settlement_chf[:, pq_id]
-                    .sum()
-                    for seed in episode_keys
-                ]
-            )
-            deviation_mean = float(deviation.mean())
+            variant = agent_id * len(candidate_params) + candidate_index
+            deviation_mean = float(totals[variant, :, pq_id].mean())
             improvement = deviation_mean - baseline_mean
             records.append(
                 DeviationRecord(

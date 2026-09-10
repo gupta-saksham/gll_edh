@@ -50,7 +50,6 @@ from sandbox.observation import GridView
 from sandbox.scenarios import step_duration_h
 from sandbox.tariff import tariff_from_settlement
 
-
 DEFAULT_TARIFF_PARAMS = {
     "export_threshold_kw": 30.0,
     "export_stress_scale_kw": 20.0,

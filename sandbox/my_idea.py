@@ -17,7 +17,8 @@
 
 Change TARIFF_PARAMS to test a tariff; score() searches the same complete policy
 bank each time. The default controller uses local voltage-trend feedback and
-persistent staggering. See CONTROLLER_FRAMEWORK_PLAN.md and the experiments
+an export cap. This is a diagnostic candidate, not an accepted tariff.
+See CONTROLLER_FRAMEWORK_PLAN.md and the experiments
 notebook for independent train/validation/test comparisons.
 """
 
@@ -25,11 +26,11 @@ from sandbox.controller_family import TUNE_OVER as TUNE_OVER
 from sandbox.controller_family import family_policy, init_family_memory
 from sandbox.tariff_family import DEFAULT_TARIFF_PARAMS, stress_tariff
 
-CONTROLLER_PARAMS = {"policy_id": 15.0, "voltage_enabled": 1.0}
+CONTROLLER_PARAMS = {"policy_id": 17.0, "voltage_enabled": 1.0}
 INIT_CARRY = init_family_memory
 TARIFF_PARAMS = {
     **DEFAULT_TARIFF_PARAMS,
-    "export_threshold_kw": 45.0,
+    "export_threshold_kw": 30.0,
     "export_strength_chf_per_kwh": 0.30,
 }
 

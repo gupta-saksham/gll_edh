@@ -81,8 +81,8 @@ are the complete reference for each seam.
 The [controller framework plan](CONTROLLER_FRAMEWORK_PLAN.md) is implemented in
 `sandbox/controller_family.py`, `sandbox/tariff_family.py`, and
 `sandbox/experiments.py`. The submission adapter in `sandbox/my_idea.py` now uses
-this family, with voltage-trend feedback and persistent household staggering
-enabled in its default policy. The historical descriptions of the shipped
+this family, with voltage-trend feedback enabled in its default policy and persistent
+household staggering available in the bank. The historical descriptions of the shipped
 naive defaults below remain useful background; they describe the original
 baseline, not this adapter's current controller.
 
@@ -109,7 +109,9 @@ For a short wiring check, add `--steps 96 --train-seeds 1 --validation-seeds 2
 --test-seeds 2` and choose a separate output directory. Use the full-week run
 for conclusions. The optional `sandbox.response_audit` module checks individual
 policy deviations and records battery/voltage diagnostics without changing the
-official simulator or controller observations.
+official simulator or controller observations. See
+[measured results](CONTROLLER_FRAMEWORK_RESULTS.md) for the completed run and
+why none of the first six tariff candidates met all acceptance criteria.
 
 **You never need to read the simulator.** Both seams are handed plain SI views
 of it — `obs` for one household, `grid` for the whole feeder — so neither
