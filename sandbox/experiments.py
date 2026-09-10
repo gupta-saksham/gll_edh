@@ -2,8 +2,10 @@
 
 Run ``python -m sandbox.experiments --output results/controller_framework``.
 Physical trajectories can be reused across tariffs because neither observations
-nor controller decisions depend on settlement. Replay is specific to the
-stateless stress tariff and is checked against live settlement in tests.
+nor controller decisions depend on settlement. Replay threads the tariff's carry
+sequentially over the interval axis, so stateful scenarios -- a demand-charge
+ratchet, a smoothed congestion signal -- replay exactly as they settle live;
+both cases are checked against live settlement in tests.
 """
 
 import argparse
@@ -19,22 +21,30 @@ import pandas as pd
 from sandbox.controller import TUNING_GRID, base_controller
 from sandbox.controller_family import POLICY_BANK, family_controller
 from sandbox.export import feeder_dataframe, to_dataframe
-from sandbox.metrics import score
+from sandbox.metrics import REVENUE_TOLERANCE, score
 from sandbox.observation import GridView
 from sandbox.rollout import build_env, rollout_seeds
 from sandbox.scenarios import EPISODE_STEPS, reference_scenario, step_duration_h
-from sandbox.tariff import init_tariff_memory
-from sandbox.tariff_family import DEFAULT_TARIFF_PARAMS, stress_tariff
+from sandbox.tariff_family import (
+    TARIFF_BANK,
+    TARIFF_BANK_NAMES,
+    family_tariff,
+    init_family_carry,
+    scenario_params,
+)
 from sandbox.tuning import parameter_grid
 
 
-def resettle(trajectory, population, tariff_params):
-    """Apply the stateless stress adjustment to a FAIR-LEG trajectory only."""
-    if tariff_params is None:
-        return trajectory
+def grid_views(trajectory, population):
+    """The tariff's view of every interval of a trajectory, time-major.
+
+    The same fields :func:`sandbox.observation.to_grid_view` builds live, so a
+    replay prices exactly what the live tariff priced -- including the clock,
+    which a time-of-use scenario replays wrongly if it is off by an interval.
+    """
     inverter_ids = jnp.asarray(population.inverter_id, dtype=jnp.int32)
     mask = jnp.zeros(population.num_pq, dtype=bool).at[inverter_ids].set(True)
-    views = GridView(
+    return GridView(
         e_grid_kwh=trajectory.e_grid_kwh,
         p_grid_kw=trajectory.e_grid_kwh / step_duration_h(),
         q_grid_kvar=trajectory.q_grid_kvarh / step_duration_h(),
@@ -46,9 +56,29 @@ def resettle(trajectory, population, tariff_params):
         fair_leg_chf=trajectory.settlement_chf,
         has_inverter=jnp.broadcast_to(mask, trajectory.e_grid_kwh.shape),
     )
-    settlement = jax.vmap(lambda view: stress_tariff(view, init_tariff_memory(), tariff_params)[0])(
-        views
-    )
+
+
+def resettle(trajectory, population, tariff_params):
+    """Re-settle a FAIR-LEG trajectory under one tariff scenario.
+
+    The carry is threaded sequentially with ``lax.scan`` over the interval
+    axis, not reset per interval. Mapping the tariff over intervals
+    independently is only correct for a stateless scenario and silently
+    produces wrong numbers for a ratchet, a running peak or a smoothed
+    congestion signal; ``tests/test_experiments.py`` pins replay against live
+    settlement for both a stateless and a stateful scenario, and against the
+    per-interval-reset version to show the two differ.
+    """
+    if tariff_params is None:
+        return trajectory
+    inverter_ids = jnp.asarray(population.inverter_id, dtype=jnp.int32)
+    views = grid_views(trajectory, population)
+
+    def settle(carry, view):
+        settlement, carry = family_tariff(view, carry, tariff_params)
+        return carry, settlement
+
+    _, settlement = jax.lax.scan(settle, init_family_carry(population.num_pq), views)
     return trajectory.replace(settlement_chf=settlement, reward_chf=settlement[:, inverter_ids])
 
 
@@ -132,6 +162,30 @@ def score_batch(batch, population, tariff_params, label, split):
     return rows, households
 
 
+def revenue_screen(batch, population, candidates, reference="fair_leg"):
+    """Community settlement per tariff with behaviour held fixed.
+
+    The official gate (:func:`sandbox.metrics.revenue_adequate`) is checked
+    this way and not on re-tuned cells: a tariff that makes households export
+    less collects less, and that is the tariff working rather than the tariff
+    printing money. Re-settling one fixed trajectory is exactly that
+    comparison, and it needs no further rollouts.
+    """
+    totals = {}
+    for name, tariff in candidates.items():
+        settle = lambda trajectory, tariff=tariff: resettle(trajectory, population, tariff)
+        settled = jax.vmap(settle)(batch)
+        totals[name] = float(np.asarray(settled.settlement_chf).sum(axis=(1, 2)).mean())
+    target = abs(totals[reference])
+    return {
+        "settlement_chf": totals,
+        "adequate": {
+            name: bool(abs(total - totals[reference]) <= REVENUE_TOLERANCE * target)
+            for name, total in totals.items()
+        },
+    }
+
+
 def _write_json(path, value):
     path.write_text(json.dumps(value, indent=2) + "\n")
 
@@ -148,15 +202,13 @@ def run(output, n_steps=EPISODE_STEPS, train_seeds=4, validation_seeds=8, test_s
         "curtailment_increase_max": 0.02,
         "draw_peak_increase_max_kw": 2.0,
         "group_cost_increase_max_chf_per_kwh": 0.01,
+        "revenue_tolerance": REVENUE_TOLERANCE,
     }
+    # The whole scenario bank, one scalar id each, plus fair LEG unchanged as
+    # the reference. `fair_leg_passthrough` is the bank's own null hypothesis
+    # and should reproduce `fair_leg` exactly.
     tariff_candidates = {"fair_leg": None}
-    for threshold in (30.0, 45.0):
-        for strength in (0.05, 0.15, 0.30):
-            tariff_candidates[f"export_{threshold:g}kw_{strength:g}"] = {
-                **DEFAULT_TARIFF_PARAMS,
-                "export_threshold_kw": threshold,
-                "export_strength_chf_per_kwh": strength,
-            }
+    tariff_candidates.update({name: scenario_params(name) for name in TARIFF_BANK_NAMES})
     manifest = {
         "revision": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
         "note": "Working tree implementation; source snapshot saved with results.",
@@ -164,6 +216,7 @@ def run(output, n_steps=EPISODE_STEPS, train_seeds=4, validation_seeds=8, test_s
         "n_steps": n_steps,
         "seeds": {"train": train_seeds, "validation": validation_seeds, "test": test_seeds},
         "policy_bank": POLICY_BANK,
+        "tariff_bank": TARIFF_BANK,
         "tariffs": tariff_candidates,
         "criteria": criteria,
         "near_optimal_tolerance_chf_per_agent_week": 0.10,
@@ -237,6 +290,24 @@ def run(output, n_steps=EPISODE_STEPS, train_seeds=4, validation_seeds=8, test_s
         household_rows.extend(homes)
         return batch
 
+    print("Screening revenue adequacy with behaviour held fixed", flush=True)
+    fixed_behaviour = take(
+        trajectories(
+            base_controller(),
+            [{key: float(value) for key, value in base_controller().params.items()}],
+            population,
+            roots["validation"],
+            validation_seeds,
+            n_steps,
+        ),
+        0,
+    )
+    revenue = revenue_screen(fixed_behaviour, population, tariff_candidates)
+    _write_json(output / "revenue_adequacy.json", revenue)
+    failed = [name for name, ok in revenue["adequate"].items() if not ok]
+    print(f"  revenue adequacy fails for: {failed or 'nothing'}", flush=True)
+    del fixed_behaviour
+
     print("Validating all tariffs on independent weather", flush=True)
     for name, tariff in tariff_candidates.items():
         evaluate_one(
@@ -263,6 +334,7 @@ def run(output, n_steps=EPISODE_STEPS, train_seeds=4, validation_seeds=8, test_s
                 for field in group_fields
             )
             and row.valid_share == 1.0
+            and revenue["adequate"][name]
         )
         if acceptable:
             eligible.append(name)
@@ -278,6 +350,7 @@ def run(output, n_steps=EPISODE_STEPS, train_seeds=4, validation_seeds=8, test_s
         "finalist": finalist,
         "eligible": eligible,
         "accepted": finalist in eligible,
+        "revenue_inadequate": failed,
         "rule": "Lowest validation export peak among candidates passing declared screens; "
         "if none pass, lowest peak is tested as a diagnostic, not a recommendation.",
     }

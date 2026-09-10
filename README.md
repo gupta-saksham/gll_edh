@@ -86,7 +86,7 @@ enabled in its default policy. The historical descriptions of the shipped
 naive defaults below remain useful background; they describe the original
 baseline, not this adapter's current controller.
 
-Run a fixed 22-policy bank against six export-stress tariffs and fair LEG:
+Run a fixed 22-policy bank against a 28-scenario tariff bank and fair LEG:
 
 ```bash
 uv run python -m sandbox.experiments --output results/controller_framework
@@ -94,9 +94,14 @@ uv run jupyter lab notebooks/01_tariff_controller_experiments.ipynb
 ```
 
 The experiment tunes on four weather weeks, selects a tariff on eight separate
-weeks, and tests the frozen finalist on twenty further weeks. It includes an
-explicitly tuned fair-LEG comparator, all-household settlement exports, and a
-matched voltage-off comparison. Results and a source snapshot are saved under
+weeks, and tests the frozen finalist on twenty further weeks. Each tariff
+scenario is a complete mechanism selected by one scalar id -- transformer
+stress, a published clock, apparent-power demand charges and ratchets, a loss
+share, locational pricing, per-connection capacity charges, a tenant floor,
+and their deliberate ablations. Screening adds revenue adequacy checked with
+behaviour held fixed, alongside the declared curtailment, draw-peak and group
+incidence limits. It includes an explicitly tuned fair-LEG comparator,
+all-household settlement exports, and a matched voltage-off comparison. Results and a source snapshot are saved under
 `results/controller_framework`. `score()` still runs the unchanged official
 evaluation, with its original baseline and tuning conventions.
 

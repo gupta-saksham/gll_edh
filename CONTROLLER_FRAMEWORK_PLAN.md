@@ -348,3 +348,87 @@ policy, seed roots, episode length, repository revision, per-seed metrics, and
 household settlements for every experiment. The working question then becomes
 concrete: **did this tariff make a useful behaviour privately attractive, and
 does that result survive other weather and other nearly equivalent responses?**
+
+## 8. A tariff scenario bank, built the same way
+
+Sections 2 and 4 leave the two seams asymmetric: the controller side gets a
+bank of 22 complete policies behind one `policy_id`, and the tariff side gets
+one mechanism with a strength knob. A comparison between six strengths of one
+mechanism cannot distinguish "this price is the wrong size" from "this price
+is charged on the wrong quantity". So give the tariff the same shape: a
+`TARIFF_BANK` of complete named scenarios behind one `scenario_id`, one
+stacked parameter table, one compiled `family_tariff`.
+
+Populate it along the four decisions section 2 already separates — system
+stress, activation, attribution, funding — and require every entry to answer
+two questions in one line each: **which real network cost does this
+internalise**, and **what signal could a household anticipate it from**. An
+entry that cannot answer both is not a tariff, it is a transfer. Include
+deliberate ablations, exactly as the policy bank includes `passive_pv` and
+the zero-voltage-gain entries: a pass-through control, the exposure-pricing
+anti-pattern, an active-power ablation of an apparent-power charge, a
+marginal-signal-removed two-part tariff, and one entry that is deliberately
+not revenue adequate so the gate can be seen working.
+
+### Three constraints the tariff side does not share with the controller side
+
+**One union carry.** The scenario is selected by a traced id, so a
+per-scenario carry type is not available at trace time, and the harness has to
+declare the carry's shape before the episode runs. One fixed-shape carry must
+therefore cover every scenario's state — running peaks, exponential averages,
+regression accumulators — and every field is updated every interval whatever
+is selected. A field's meaning then depends on the scenario, which is the
+price of the single shape and worth stating in the module rather than
+discovering later.
+
+**Replay must thread that carry.** Physical trajectories are reused across
+tariffs, and re-settling one is only equivalent to settling it live if the
+carry is threaded sequentially over the interval axis. Mapping the tariff over
+intervals with a fresh carry each time is correct for a stateless mechanism
+and silently wrong for every stateful one, in a way no shape check catches.
+Pin it with a test that compares replay against live settlement for a
+stateful scenario, and against the per-interval-reset version to show the two
+differ.
+
+**Budget neutrality by construction.** Pool every charge and redistribute it
+inside the same interval, so the interval total is fair LEG's total exactly
+and revenue adequacy holds structurally. Then screen it empirically anyway,
+with behaviour held fixed — re-settling one fixed trajectory is exactly the
+comparison `revenue_adequate` makes, and it needs no extra rollouts.
+
+### Size the price against marginal exposure, not the headline
+
+Measure, for every entry, on a fixed trajectory: the pooled transfer per
+week, each group's cost per kWh of its own load, and the change in one
+connection point's own settlement per extra kWh it exports — separately for a
+sustained increase and for a one-interval spike, because a ratchet's cost of
+a spike is intertemporal and averages away in the first probe. Two results
+from doing that here are worth recording as plan-level cautions:
+
+- A charge on own directional energy passes almost its whole headline rate to
+  the margin (the equal rebate returns only 1/18 of it), so the shipped
+  0.15 CHF/kWh stress term is already competing with the 0.14 CHF/kWh feed-in
+  rate. A charge allocated pro rata over an aggregate excess does not.
+- The predeclared incidence screen of 0.01 CHF/kWh per group is a far tighter
+  constraint than the revenue gate. It admits only mechanisms whose weekly
+  pool is roughly under 40 CHF, which rules out most redistribution-heavy
+  designs and favours ratchets, where the pool is small and the marginal rate
+  at the moment of a new record is large. Where the pool has to be larger,
+  return it inside the class that paid it rather than equally over all
+  eighteen points: an equal rebate hands the six connection points that paid
+  nothing a windfall, and that windfall, not the charge, is what usually
+  breaks the incidence screen.
+
+### What the seam cannot supply
+
+A locational price should charge the sensitivity of the binding quantity to a
+point's own injection, not the voltage level. Estimating that sensitivity from
+the published fields — own voltage against own energy, controlling for the
+substation flow, accumulated over an episode — does not work on this feeder:
+the physical sensitivity spans 0.0003 to 0.0228 pu/kWh monotone in electrical
+distance, and the estimate correlates with distance rank at about -0.19 and
+turns negative at two connection points. Keep the scenario as a measured
+negative result, and record the missing field: a per-point voltage
+sensitivity, per-branch flows, or the power-flow Jacobian. The same gap
+applies to funding a rate-class floor in proportion to consumption, which
+would need behind-meter load rather than net exchange.
