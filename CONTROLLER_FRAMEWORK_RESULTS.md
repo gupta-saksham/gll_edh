@@ -166,3 +166,29 @@ Results include `metrics.csv`, `household_settlements.csv`, `tuning.csv`,
 `paired_deltas.json`, `selection.json`, `official_score.txt`,
 `unilateral_deviations.csv`, `storage_diagnostics.csv`, and
 `marginal_settlements.csv`. The notebook contains test charts and group tables.
+
+## Expanded direct-voltage policy rerun
+
+The controller bank was subsequently expanded from 22 to 32 policies without
+changing IDs 0–21. Policies 22–31 add bounded linear response to the latest
+observed local voltage level, matched one- and two-hour stagger variants, a
+1.01 pu reference variant, a level/trend blend, and a slow-charge combination.
+The complete comparison was rerun with the original train, validation, and test
+roots under `results/controller_framework_linear_voltage_20260910`.
+
+The new policies became household-settlement winners for three milder stress
+tariffs: policy 23 (`instant_10`) for 30 kW / 0.15 CHF/kWh and policy 31
+(`instant_slow_stagger_1h`) for both 45 kW / 0.05 and 0.15 CHF/kWh. Policy 31
+was also the best voltage-enabled response under fair LEG. The strong 30 kW /
+0.30 CHF/kWh diagnostic still selected policy 11 (`cap_4`), produced the same
+failed test outcome reported above, and remained the fallback because no tariff
+passed all validation screens. The expanded response space therefore improves
+the milder candidates but does not rescue the rejected tariff design.
+
+The fairness-aware credible-response table contains 31 tariff/controller rows.
+All are non-dominated across the four network and four group-price objectives;
+use the individual columns rather than interpreting membership as acceptance.
+The expanded unilateral audit tested policies 1, 4, 15, 23, and 31 against the
+diagnostic baseline. All twelve inverter households had at least one profitable
+tested deviation, with a maximum measured gain of CHF 10.48 per week, so the
+stability conclusion is stronger than in the original shortlist audit.

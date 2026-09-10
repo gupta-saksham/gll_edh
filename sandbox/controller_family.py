@@ -2,9 +2,9 @@
 
 The family exposes complete policy sets through one scalar ``policy_id``.  This
 keeps tuning cheap and, more importantly, gives every tariff the same response
-space.  Voltage feedback uses the previous interval's local voltage and a
-persistent EWMA; it is therefore a delayed, bounded correction rather than a
-claim to observe current feeder conditions.
+space. Voltage feedback uses the previous interval's local voltage either
+directly or relative to a persistent EWMA; it is therefore a delayed, bounded
+correction rather than a claim to observe current feeder conditions.
 """
 
 from __future__ import annotations
@@ -49,6 +49,8 @@ def _policy(
     release_h: float = 17.0,
     export_cap_kw: float = 1.0e3,
     voltage_gain_kw_per_pu: float = 0.0,
+    voltage_level_gain_kw_per_pu: float = 0.0,
+    voltage_reference_pu: float = 1.0,
     voltage_deadband_pu: float = 0.005,
     voltage_max_kw: float = 1.0,
     exchange_mix: float = 1.0,
@@ -63,8 +65,9 @@ def _policy(
     return dict(locals())
 
 
-# Deliberately small complete-policy bank.  Entries with voltage gain zero are
-# explicit ablations; entries 13--18 exercise bounded voltage response.
+# Deliberately small complete-policy bank. Entries 13--17 use voltage trend;
+# entries 22--31 add a direct linear voltage-level response. Existing IDs stay
+# fixed because saved experiments and audit scripts refer to them.
 POLICY_BANK: list[dict[str, Any]] = [
     _policy("passive_pv", active=0.0),
     _policy("self_consumption"),
@@ -97,6 +100,54 @@ POLICY_BANK: list[dict[str, Any]] = [
     _policy("joint", charge_start_h=11.0, spread_h=2.0, charge_fraction=0.5,
             reserve_fraction=0.25, export_cap_kw=4.0,
             voltage_gain_kw_per_pu=25.0, exchange_mix=0.5),
+    _policy("instant_5", charge_start_h=11.0, voltage_level_gain_kw_per_pu=5.0),
+    _policy("instant_10", charge_start_h=11.0, voltage_level_gain_kw_per_pu=10.0),
+    _policy("instant_25", charge_start_h=11.0, voltage_level_gain_kw_per_pu=25.0),
+    _policy(
+        "instant_stagger_1h_5",
+        charge_start_h=11.0,
+        spread_h=1.0,
+        voltage_level_gain_kw_per_pu=5.0,
+    ),
+    _policy(
+        "instant_stagger_1h_10",
+        charge_start_h=11.0,
+        spread_h=1.0,
+        voltage_level_gain_kw_per_pu=10.0,
+    ),
+    _policy(
+        "instant_stagger_1h_25",
+        charge_start_h=11.0,
+        spread_h=1.0,
+        voltage_level_gain_kw_per_pu=25.0,
+    ),
+    _policy(
+        "instant_stagger_2h_10",
+        charge_start_h=11.0,
+        spread_h=2.0,
+        voltage_level_gain_kw_per_pu=10.0,
+    ),
+    _policy(
+        "instant_stagger_1h_10_ref101",
+        charge_start_h=11.0,
+        spread_h=1.0,
+        voltage_level_gain_kw_per_pu=10.0,
+        voltage_reference_pu=1.01,
+    ),
+    _policy(
+        "blend_stagger_1h",
+        charge_start_h=11.0,
+        spread_h=1.0,
+        voltage_gain_kw_per_pu=25.0,
+        voltage_level_gain_kw_per_pu=10.0,
+    ),
+    _policy(
+        "instant_slow_stagger_1h",
+        charge_start_h=11.0,
+        spread_h=1.0,
+        charge_fraction=0.5,
+        voltage_level_gain_kw_per_pu=10.0,
+    ),
 ]
 
 policy_bank = POLICY_BANK  # convenient lower-case alias for exploratory notebooks
@@ -185,9 +236,18 @@ def family_policy(
     trend_outside_band = jnp.sign(trend_pu) * jnp.maximum(
         jnp.abs(trend_pu) - p["voltage_deadband_pu"], 0.0
     )
+    # Direct level response is linear around its reference, with only the
+    # shared action bound below. Unlike the delayed trend baseline, it acts on
+    # the first available voltage observation and does not fade during a
+    # sustained high- or low-voltage period.
+    level_pu = obs.voltage_pu - p["voltage_reference_pu"]
     voltage_enabled = jnp.asarray(params.get("voltage_enabled", 1.0), dtype=jnp.float32)
     voltage_kw = jnp.clip(
-        voltage_enabled * p["voltage_gain_kw_per_pu"] * trend_outside_band,
+        voltage_enabled
+        * (
+            p["voltage_gain_kw_per_pu"] * trend_outside_band
+            + p["voltage_level_gain_kw_per_pu"] * level_pu
+        ),
         -p["voltage_max_kw"],
         p["voltage_max_kw"],
     )
@@ -236,12 +296,21 @@ def family_controller(policy_id: float = 15.0) -> Controller:
 TUNE_OVER = {"policy_id": [float(i) for i in range(len(POLICY_BANK))]}
 
 
+def has_voltage_response(policy: dict[str, Any]) -> bool:
+    """Whether a complete policy uses trend, direct level, or both."""
+    return bool(
+        policy["voltage_gain_kw_per_pu"] > 0.0
+        or policy["voltage_level_gain_kw_per_pu"] > 0.0
+    )
+
+
 __all__ = [
     "POLICY_BANK",
     "TUNE_OVER",
     "FamilyMemory",
     "family_controller",
     "family_policy",
+    "has_voltage_response",
     "init_family_memory",
     "policy_bank",
 ]

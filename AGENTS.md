@@ -17,27 +17,35 @@
 
 | File | Responsibility |
 |---|---|
-| `sandbox/controller_family.py` | A bank of 22 complete local JAX policies, selected by `policy_id` |
+| `sandbox/controller_family.py` | A bank of 32 complete local JAX policies, selected by `policy_id` |
 | `sandbox/tariff_family.py` | Fair LEG plus directional transformer stress charges and equal rebates |
+| `sandbox/voltage_tariff.py` | Bounded local energy price that decreases with solved bus voltage and balances to fair LEG |
 | `sandbox/my_idea.py` | Adapter exposing controller, tariff, carry, and tuning bank to `check()` / `score()` |
-| `sandbox/experiments.py` | Paired policy/tariff experiments with independent weather splits and saved results |
+| `sandbox/experiments.py` | Paired policy/tariff experiments, credible-response Pareto frontiers, independent weather splits, and saved results |
 | `sandbox/response_audit.py` | Unilateral policy deviations and battery/voltage diagnostics |
 | `sandbox/marginal_audit.py` | One-interval feasible action perturbations with neighbours' requests held fixed |
 | `scripts/run_framework_audits.py` | Runs response, storage, and near-optimal-policy audits for a saved experiment |
+| `scripts/run_voltage_tariff_experiment.py` | Selects the best voltage-tariff controller and writes the quickstart-style four-cell table |
 | `notebooks/01_tariff_controller_experiments.ipynb` | Loads saved results and displays comparison plots and incidence tables |
 | `CONTROLLER_FRAMEWORK_PLAN.md` | Design rationale and proposed iteration process |
 | `CONTROLLER_FRAMEWORK_RESULTS.md` | Completed first experiment, tradeoffs, and limitations |
+| `VOLTAGE_TARIFF_RESULTS.md` | Four-cell voltage-price experiment, selected controller, incidence, and limitations |
 
 The controller family supports scheduled charging, charging-rate control,
 evening reserves, persistent household staggering, export caps, exchange
 smoothing, optional grid charging/battery export, and bounded voltage feedback.
 It returns **inverter active power in kW**, not net grid exchange.
 
-Voltage feedback uses the previous interval's local voltage minus a six-hour
-EWMA. The first observation initialises the EWMA to avoid a false initial
-response. Current bank settings include a 0.005 pu deadband, gains of 25 or
-75 kW/pu, and a 1 kW correction cap. Mode permissions and physical limits apply.
-The carry has fixed shape/dtype; staggering is drawn once per household.
+Trend voltage feedback uses the previous interval's local voltage minus a
+six-hour EWMA. The first observation initialises the EWMA to avoid a false
+trend response. Direct-level policies instead respond linearly to the latest
+available local voltage relative to 1.00 or 1.01 pu and act on the first
+sample; the observation is still one interval delayed. The bank includes
+direct gains of 5, 10, and 25 kW/pu, legacy trend gains of 25 or 75 kW/pu,
+matched one- and two-hour staggering, a trend/level blend, and a slow-charge
+combination. Corrections are capped at 1 kW. Mode permissions and physical
+limits apply. The carry has fixed shape/dtype; staggering is drawn once per
+household.
 
 `family_controller()` defaults to policy 15 (voltage-enabled staggering).
 The submission adapter currently defaults to **policy 17** (voltage feedback
@@ -74,6 +82,63 @@ Use a fresh output directory for each new experiment; reusing one overwrites
 files. `results/` is ignored by Git. Preserve meaningful findings in the results
 document and retain run manifests/source snapshots alongside data.
 
+Each tariff's credible-response set contains family policies whose training
+settlement is within CHF 0.10 per inverter household and episode of that
+tariff's best shared-policy response. The runner evaluates those policies on
+validation weather, then marks the non-dominated policies while minimising
+export peak, import peak, maximum ramp, curtailment, and the cost change for
+each of the four household groups relative to tuned fair LEG. It writes every
+credible candidate to `credible_response_candidates.csv` and the non-dominated
+subset to `credible_response_frontier.csv`. The tables include each group's
+actual-load-normalised price, its fair-LEG reference price, and the difference;
+positive price differences are worse for that group. This is a multi-objective
+frontier within an economically credible response set; it is not proof of
+individual equilibrium. Do not use final-test weather to construct or revise
+the frontier.
+
+### Add and run any tariff experiment
+
+1. Give every tariff design a unique, descriptive name and add its complete
+   parameter dictionary to `tariff_candidates` in `sandbox/experiments.py`.
+   Put designs that must be compared in the same run so they use identical
+   controller banks, weather, tolerances, and acceptance rules. Changing only
+   `TARIFF_PARAMS` in `sandbox/my_idea.py` does not change this experiment.
+2. If the design changes the formula rather than only the existing stress
+   tariff's parameters, implement the formula in `sandbox/tariff_family.py` and
+   extend `resettle()` plus its live-rollout equivalence test. The current
+   replay is valid only for fair-LEG trajectories settled by the stateless
+   stress tariff. Use a live rollout or a separately verified sequential replay
+   for a stateful tariff; never apply the stress adjustment twice.
+3. Run a one-day wiring check in a fresh directory:
+
+   ```bash
+   uv run python -m sandbox.experiments \
+     --output results/<experiment_name>_smoke \
+     --steps 96 --train-seeds 1 --validation-seeds 2 --test-seeds 2
+   ```
+
+   Use this only to check execution and output schemas, not to compare weekly
+   performance or choose a design.
+4. Run the full comparison in another fresh directory:
+
+   ```bash
+   uv run python -m sandbox.experiments \
+     --output results/<experiment_name>
+   ```
+
+5. The runner regenerates the compiled tables automatically. Inspect
+   `credible_response_candidates.csv` for every economically credible
+   tariff/controller pair and `credible_response_frontier.csv` for the
+   fairness-aware, non-dominated subset. Do not hand-append rows from separate
+   experiments with different banks, splits, or criteria. To extend one
+   controlled comparison, add all designs to its `tariff_candidates`, choose a
+   new output directory, and rerun the whole comparison.
+6. Check `manifest.json` before comparing tables. Record the code revision,
+   tariff parameters, policy bank, seed roots, episode length, settlement
+   tolerance, Pareto objectives, and acceptance criteria. Run the follow-up
+   audits only after choosing a finalist, then summarize durable findings in
+   `CONTROLLER_FRAMEWORK_RESULTS.md` without overwriting prior evidence.
+
 ### Open results and run follow-up audits
 
 ```bash
@@ -109,6 +174,46 @@ pd.DataFrame(rows).to_csv(
 
 For a different saved run, obtain the tariff and policy from its `manifest.json`
 and `selected.json`; do not assume they match `sandbox/my_idea.py`.
+
+### Run the local-voltage price experiment
+
+The simple voltage tariff uses the solved voltage at each connection point:
+
+```text
+price_chf_per_kwh = clip(0.15 - 1.5 * (voltage_pu - 1.0), 0.05, 0.25)
+```
+
+Exported energy earns the local price and imported energy pays it. An equal
+per-connection lump-sum balance makes every interval's total settlement match
+fair LEG exactly. This makes the energy price decrease monotonically with
+voltage without creating tariff revenue on a fixed trajectory. It remains a
+diagnostic exposure price, not a causal voltage-sensitivity price.
+
+Run a wiring check and then the full experiment in separate fresh directories:
+
+```bash
+uv run python -m scripts.run_voltage_tariff_experiment \
+  --output results/voltage_price_tariff_smoke \
+  --steps 96 --train-seeds 1 --test-seeds 2
+
+uv run python -m scripts.run_voltage_tariff_experiment \
+  --output results/voltage_price_tariff
+```
+
+The full run searches all 32 family policies and all 16 installed-base
+parameter combinations on four training weeks, selects by mean settlement per
+inverter household, and evaluates four cells on twenty separate test weeks:
+`fair_leg/base`, `fair_leg/selected_family`, `voltage_price/tuned_base`, and
+`voltage_price/selected_family`. The output directory contains
+`controller_tuning.csv`, `four_cell_comparison.csv`, a readable
+`four_cell_comparison.md`, `manifest.json`, and source snapshots. Parenthesised
+group-price values in the Markdown table are differences from `fair_leg/base`;
+positive means worse. Do not describe a one-day smoke result as weekly evidence.
+
+The expanded-bank run selected policy 31 (`instant_slow_stagger_1h`). Its
+saved full result is `results/voltage_price_tariff_linear_voltage_20260910`;
+see `VOLTAGE_TARIFF_RESULTS.md`. The earlier 22-policy voltage-price run is
+superseded and must not be used as the current controller selection.
 
 ### Existing submission checks
 
@@ -159,6 +264,8 @@ weather and continue calling it a holdout.
 - `selection.json`: validation choice and whether it passed acceptance criteria.
 - `metrics.csv`, `summary.csv`, `paired_deltas.json`: per-weather metrics and
   summaries; compute peaks per episode before averaging.
+- `credible_response_candidates.csv`, `credible_response_frontier.csv`: all
+  settlement-near-optimal controller responses and their validation Pareto set.
 - `household_settlements.csv`: all 18 households, actual load, and incidence.
 - `*_household_trace.csv`, `*_feeder_trace.csv`: illustrative test traces.
 - Audit outputs: `unilateral_deviations.csv`, `storage_diagnostics.csv`,

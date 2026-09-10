@@ -19,7 +19,7 @@ import numpy as np
 import pandas as pd
 
 from sandbox.controller import TUNING_GRID, base_controller
-from sandbox.controller_family import POLICY_BANK, family_controller
+from sandbox.controller_family import POLICY_BANK, family_controller, has_voltage_response
 from sandbox.export import feeder_dataframe, to_dataframe
 from sandbox.metrics import REVENUE_TOLERANCE, score
 from sandbox.observation import GridView
@@ -33,6 +33,38 @@ from sandbox.tariff_family import (
     scenario_params,
 )
 from sandbox.tuning import parameter_grid
+
+CREDIBLE_RESPONSE_TOLERANCE_CHF_PER_AGENT_WEEK = 0.10
+PARETO_NETWORK_OBJECTIVES = (
+    "transformer_export_peak_kw",
+    "transformer_draw_peak_kw",
+    "max_ramp_kw",
+    "curtailed_share",
+)
+FAIRNESS_GROUPS = ("tenant", "pv_only", "pv_battery", "large_flex")
+PARETO_FAIRNESS_OBJECTIVES = tuple(
+    f"{group}_cost_delta_vs_fair_leg_chf_per_load_kwh" for group in FAIRNESS_GROUPS
+)
+CREDIBLE_PARETO_OBJECTIVES = PARETO_NETWORK_OBJECTIVES + PARETO_FAIRNESS_OBJECTIVES
+
+
+def pareto_efficient_mask(frame, objectives=CREDIBLE_PARETO_OBJECTIVES):
+    """Mark rows not dominated on the supplied minimisation objectives.
+
+    Equal rows remain on the frontier. The caller is responsible for applying
+    any behavioural-credibility filter before using this engineering frontier.
+    """
+    if frame.empty:
+        return np.zeros(0, dtype=bool)
+    values = frame.loc[:, list(objectives)].to_numpy(dtype=float)
+    if not np.isfinite(values).all():
+        raise ValueError("Pareto objectives must all be finite")
+    efficient = np.ones(len(values), dtype=bool)
+    for index, candidate in enumerate(values):
+        weakly_better = np.all(values <= candidate, axis=1)
+        strictly_better = np.any(values < candidate, axis=1)
+        efficient[index] = not np.any(weakly_better & strictly_better)
+    return efficient
 
 
 def grid_views(trajectory, population):
@@ -219,7 +251,10 @@ def run(output, n_steps=EPISODE_STEPS, train_seeds=4, validation_seeds=8, test_s
         "tariff_bank": TARIFF_BANK,
         "tariffs": tariff_candidates,
         "criteria": criteria,
-        "near_optimal_tolerance_chf_per_agent_week": 0.10,
+        "near_optimal_tolerance_chf_per_agent_week": (
+            CREDIBLE_RESPONSE_TOLERANCE_CHF_PER_AGENT_WEEK
+        ),
+        "credible_response_pareto_objectives": list(CREDIBLE_PARETO_OBJECTIVES),
     }
     _write_json(output / "manifest.json", manifest)
     snapshot = output / "source"
@@ -251,12 +286,16 @@ def run(output, n_steps=EPISODE_STEPS, train_seeds=4, validation_seeds=8, test_s
                 voltage_ids = [
                     i
                     for i, policy in enumerate(POLICY_BANK)
-                    if policy["voltage_gain_kw_per_pu"] > 0
+                    if has_voltage_response(policy)
                 ]
                 voltage_winner = max(voltage_ids, key=lambda i: means[i])
                 selected[name]["voltage_family"] = candidates[voltage_winner]
                 selected[name]["near_optimal_policy_ids"] = [
-                    int(i) for i in np.flatnonzero(means.max() - means <= 0.10)
+                    int(i)
+                    for i in np.flatnonzero(
+                        means.max() - means
+                        <= CREDIBLE_RESPONSE_TOLERANCE_CHF_PER_AGENT_WEEK
+                    )
                 ]
             for idx, mean in enumerate(means):
                 tuning_rows.append(
@@ -270,21 +309,25 @@ def run(output, n_steps=EPISODE_STEPS, train_seeds=4, validation_seeds=8, test_s
                     }
                 )
         print(f"  {name}: {selected[name]}", flush=True)
-    pd.DataFrame(tuning_rows).to_csv(output / "tuning.csv", index=False)
+    tuning = pd.DataFrame(tuning_rows)
+    tuning.to_csv(output / "tuning.csv", index=False)
     _write_json(output / "selected.json", selected)
     del family_train, base_train
 
     rows, household_rows = [], []
     cache = {}
 
-    def evaluate_one(kind, params, tariff, label, split, seeds):
+    def batch_for(kind, params, split, seeds):
         identity = (split, kind, tuple(sorted(params.items())))
         if identity not in cache:
             controller = family_controller() if kind == "family" else base_controller()
             cache[identity] = take(
                 trajectories(controller, [params], population, roots[split], seeds, n_steps), 0
             )
-        batch = cache[identity]
+        return cache[identity]
+
+    def evaluate_one(kind, params, tariff, label, split, seeds):
+        batch = batch_for(kind, params, split, seeds)
         scored, homes = score_batch(batch, population, tariff, label, split)
         rows.extend(scored)
         household_rows.extend(homes)
@@ -308,6 +351,26 @@ def run(output, n_steps=EPISODE_STEPS, train_seeds=4, validation_seeds=8, test_s
     print(f"  revenue adequacy fails for: {failed or 'nothing'}", flush=True)
     del fixed_behaviour
 
+    credible_policy_ids = sorted(
+        {
+            policy_id
+            for tariff_selection in selected.values()
+            for policy_id in tariff_selection["near_optimal_policy_ids"]
+        }
+    )
+    credible_validation = trajectories(
+        family_controller(),
+        [{"policy_id": policy_id} for policy_id in credible_policy_ids],
+        population,
+        roots["validation"],
+        validation_seeds,
+        n_steps,
+    )
+    for index, policy_id in enumerate(credible_policy_ids):
+        identity = ("validation", "family", (("policy_id", policy_id),))
+        cache[identity] = take(credible_validation, index)
+    del credible_validation
+
     print("Validating all tariffs on independent weather", flush=True)
     for name, tariff in tariff_candidates.items():
         evaluate_one(
@@ -316,10 +379,7 @@ def run(output, n_steps=EPISODE_STEPS, train_seeds=4, validation_seeds=8, test_s
     validation = pd.DataFrame(rows)
     avg = validation.groupby("run").mean(numeric_only=True)
     reference = avg.loc["fair_leg"]
-    group_fields = [
-        f"{kind}_cost_per_load_kwh_chf"
-        for kind in ("tenant", "pv_only", "pv_battery", "large_flex")
-    ]
+    group_fields = [f"{kind}_cost_per_load_kwh_chf" for kind in FAIRNESS_GROUPS]
     eligible = []
     for name in tariff_candidates:
         if name == "fair_leg":
@@ -356,6 +416,93 @@ def run(output, n_steps=EPISODE_STEPS, train_seeds=4, validation_seeds=8, test_s
     }
     _write_json(output / "selection.json", selection)
     print(f"Finalist: {finalist}; passes screens: {selection['accepted']}", flush=True)
+
+    print("Evaluating credible-response Pareto candidates", flush=True)
+    credible_rows = []
+    family_tuning = tuning.query("controller == 'family'").set_index(["tariff", "candidate"])
+    fair_leg_reference_policy_id = selected["fair_leg"]["family"]["policy_id"]
+    for name, candidate_tariff in tariff_candidates.items():
+        for policy_id in selected[name]["near_optimal_policy_ids"]:
+            params = {"policy_id": float(policy_id)}
+            batch = batch_for("family", params, "validation", validation_seeds)
+            scored, _ = score_batch(
+                batch,
+                population,
+                candidate_tariff,
+                f"{name}/policy_{policy_id}",
+                "validation",
+            )
+            validation_metrics = (
+                pd.DataFrame(scored)
+                .drop(columns=["run", "split", "seed_index"])
+                .mean(numeric_only=True)
+                .to_dict()
+            )
+            fairness_comparison = {}
+            fairness_deltas = []
+            for group in FAIRNESS_GROUPS:
+                cost_field = f"{group}_cost_per_load_kwh_chf"
+                reference_cost = float(reference[cost_field])
+                delta = float(validation_metrics[cost_field] - reference_cost)
+                fairness_comparison[
+                    f"fair_leg_reference_{group}_cost_per_load_kwh_chf"
+                ] = reference_cost
+                fairness_comparison[
+                    f"{group}_cost_delta_vs_fair_leg_chf_per_load_kwh"
+                ] = delta
+                fairness_deltas.append(delta)
+            tuning_row = family_tuning.loc[(name, policy_id)]
+            policy = POLICY_BANK[policy_id]
+            row = {
+                "tariff": name,
+                "tariff_parameters": json.dumps(candidate_tariff, sort_keys=True),
+                "controller_policy_id": policy_id,
+                "controller_name": policy["name"],
+                "controller_parameters": json.dumps(params, sort_keys=True),
+                "split": "validation",
+                "validation_seed_count": validation_seeds,
+                "train_mean_settlement_chf_per_agent": float(tuning_row["mean_return_chf"]),
+                "train_settlement_gap_chf_per_agent": float(tuning_row["gap_chf"]),
+                "credible_response_tolerance_chf_per_agent": (
+                    CREDIBLE_RESPONSE_TOLERANCE_CHF_PER_AGENT_WEEK
+                ),
+                "fair_leg_reference_controller_policy_id": fair_leg_reference_policy_id,
+                "fair_leg_reference_controller_name": POLICY_BANK[
+                    fair_leg_reference_policy_id
+                ]["name"],
+                "tariff_passes_acceptance_screens": (
+                    None if name == "fair_leg" else name in eligible
+                ),
+                "tariff_is_finalist": name == finalist,
+                "pareto_objectives": ";".join(CREDIBLE_PARETO_OBJECTIVES),
+                **{
+                    f"tariff_{key}": value
+                    for key, value in (candidate_tariff or {}).items()
+                },
+                **{
+                    f"controller_{key}": value
+                    for key, value in policy.items()
+                    if key != "name"
+                },
+                **validation_metrics,
+                **fairness_comparison,
+                "worst_group_cost_increase_vs_fair_leg_chf_per_load_kwh": max(
+                    fairness_deltas
+                ),
+            }
+            credible_rows.append(row)
+
+    credible = pd.DataFrame(credible_rows)
+    credible["is_pareto"] = False
+    for _, indices in credible.groupby("tariff", sort=False).groups.items():
+        credible.loc[indices, "is_pareto"] = pareto_efficient_mask(credible.loc[indices])
+    credible = credible.sort_values(
+        ["tariff", "is_pareto", "train_settlement_gap_chf_per_agent"],
+        ascending=[True, False, True],
+    )
+    credible.to_csv(output / "credible_response_candidates.csv", index=False)
+    credible.query("is_pareto").to_csv(output / "credible_response_frontier.csv", index=False)
+
     tariff = tariff_candidates[finalist]
     test_specs = [
         ("base", dict(base_controller().params), None, "fair_leg/default_base"),

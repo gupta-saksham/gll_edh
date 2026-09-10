@@ -33,7 +33,9 @@ def main():
     population = reference_scenario()
     policy_id = selected[finalist]["family"]["policy_id"]
     controller = family_controller(policy_id)
-    candidate_ids = sorted({1, 4, 11, 15} - {policy_id})
+    # Cover the original anchors plus the expanded bank's direct-level and
+    # slow/staggered direct-level voltage responses.
+    candidate_ids = sorted({1, 4, 11, 15, 23, 31} - {policy_id})
     print(f"Unilateral audit: baseline {policy_id}, alternatives {candidate_ids}", flush=True)
     records = audit_deviations(
         controller,

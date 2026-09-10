@@ -2,6 +2,7 @@
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 from sandbox.controller_family import (
     POLICY_BANK,
@@ -9,6 +10,7 @@ from sandbox.controller_family import (
     FamilyMemory,
     family_controller,
     family_policy,
+    has_voltage_response,
     init_family_memory,
 )
 from sandbox.observation import LocalObservation
@@ -45,13 +47,17 @@ def _run(policy_id, obs=None, carry=None, key=0):
 
 
 def test_bank_is_compact_complete_and_contains_voltage_ablation() -> None:
-    assert len(POLICY_BANK) <= 32
+    assert len(POLICY_BANK) == 32
     assert TUNE_OVER["policy_id"] == [float(i) for i in range(len(POLICY_BANK))]
     keys = set(POLICY_BANK[0])
     assert all(set(policy) == keys for policy in POLICY_BANK)
     assert any(p["voltage_gain_kw_per_pu"] == 0.0 for p in POLICY_BANK)
     assert any(p["voltage_gain_kw_per_pu"] > 0.0 for p in POLICY_BANK)
+    assert any(p["voltage_level_gain_kw_per_pu"] > 0.0 for p in POLICY_BANK)
     assert POLICY_BANK[int(family_controller().params["policy_id"])]["voltage_gain_kw_per_pu"] > 0
+    assert has_voltage_response(POLICY_BANK[15])
+    assert has_voltage_response(POLICY_BANK[25])
+    assert not has_voltage_response(POLICY_BANK[5])
 
 
 def test_policy_id_float_is_jittable_and_cast_to_integer() -> None:
@@ -104,11 +110,56 @@ def test_voltage_can_be_disabled_on_the_same_policy() -> None:
     assert enabled < disabled
 
 
+def test_instant_voltage_can_be_disabled_on_the_same_policy() -> None:
+    obs = _obs(voltage_pu=1.02)
+    enabled, _ = family_policy(
+        obs,
+        init_family_memory(),
+        {"policy_id": jnp.float32(23), "voltage_enabled": jnp.float32(1)},
+        jax.random.PRNGKey(0),
+    )
+    disabled, _ = family_policy(
+        obs,
+        init_family_memory(),
+        {"policy_id": jnp.float32(23), "voltage_enabled": jnp.float32(0)},
+        jax.random.PRNGKey(0),
+    )
+    matched_off, _ = _run(3, obs)
+
+    assert enabled < disabled
+    assert jnp.allclose(disabled, matched_off)
+
+
 def test_first_voltage_sample_has_no_spurious_correction() -> None:
     high, memory = _run(14, _obs(voltage_pu=1.08))
     neutral, _ = _run(14, _obs(voltage_pu=1.0))
     assert jnp.allclose(high, neutral)
     assert jnp.allclose(memory.voltage_ewma_pu, 1.08)
+
+
+def test_instant_voltage_level_response_is_linear_and_acts_on_first_sample() -> None:
+    low, _ = _run(23, _obs(voltage_pu=0.99))
+    neutral, _ = _run(23, _obs(voltage_pu=1.00))
+    high, _ = _run(23, _obs(voltage_pu=1.01))
+
+    np.testing.assert_allclose(neutral - high, 0.1, atol=2e-6)
+    np.testing.assert_allclose(low - neutral, 0.1, atol=2e-6)
+
+
+def test_instant_voltage_level_response_is_bounded() -> None:
+    high, _ = _run(24, _obs(voltage_pu=1.20))
+    low, _ = _run(24, _obs(voltage_pu=0.80))
+
+    assert low - high <= 2.0 + 1e-6
+
+
+def test_instant_reference_and_matched_stagger_variants_are_declared() -> None:
+    assert POLICY_BANK[25]["spread_h"] == POLICY_BANK[5]["spread_h"] == 1.0
+    assert POLICY_BANK[25]["voltage_level_gain_kw_per_pu"] == 5.0
+    assert POLICY_BANK[28]["spread_h"] == POLICY_BANK[6]["spread_h"] == 2.0
+    assert POLICY_BANK[29]["voltage_reference_pu"] == 1.01
+    assert POLICY_BANK[30]["voltage_gain_kw_per_pu"] > 0.0
+    assert POLICY_BANK[30]["voltage_level_gain_kw_per_pu"] > 0.0
 
 
 def test_stagger_is_drawn_once_and_persists() -> None:
@@ -165,5 +216,6 @@ def test_low_voltage_cannot_export_battery_without_permission() -> None:
         intervals=jnp.int32(1),
     )
     obs = _obs(voltage_pu=0.97, pv_available_kw=0.0, p_load_forecast_kw=1.0)
-    action, _ = _run(14, obs, carry)
-    assert action <= obs.p_load_forecast_kw
+    for policy_id in (14, 23):
+        action, _ = _run(policy_id, obs, carry)
+        assert action <= obs.p_load_forecast_kw

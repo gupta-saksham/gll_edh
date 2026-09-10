@@ -2,9 +2,16 @@
 
 import jax
 import numpy as np
+import pandas as pd
 
 from sandbox.controller import base_controller, passive_controller
-from sandbox.experiments import household_load_kwh, resettle, revenue_screen
+from sandbox.experiments import (
+    CREDIBLE_PARETO_OBJECTIVES,
+    household_load_kwh,
+    pareto_efficient_mask,
+    resettle,
+    revenue_screen,
+)
 from sandbox.rollout import build_env, rollout, rollout_seeds
 from sandbox.scenarios import reference_scenario
 from sandbox.tariff_family import family_tariff_factory, scenario_params
@@ -116,3 +123,42 @@ def test_actual_load_is_independent_of_battery_dispatch():
     load = household_load_kwh(base, population)
     np.testing.assert_allclose(load, household_load_kwh(passive, population), atol=2e-6)
     assert np.all(load > 0)
+
+
+def test_pareto_mask_keeps_tradeoffs_and_equal_rows_but_drops_dominated_rows():
+    frame = pd.DataFrame(
+        {
+            "transformer_export_peak_kw": [10.0, 9.0, 8.0, 9.0],
+            "transformer_draw_peak_kw": [5.0, 5.0, 7.0, 5.0],
+            "max_ramp_kw": [20.0, 20.0, 19.0, 20.0],
+            "curtailed_share": [0.10, 0.10, 0.05, 0.10],
+            "tenant_cost_delta_vs_fair_leg_chf_per_load_kwh": [0.0] * 4,
+            "pv_only_cost_delta_vs_fair_leg_chf_per_load_kwh": [0.0] * 4,
+            "pv_battery_cost_delta_vs_fair_leg_chf_per_load_kwh": [0.0] * 4,
+            "large_flex_cost_delta_vs_fair_leg_chf_per_load_kwh": [0.0] * 4,
+        }
+    )
+
+    np.testing.assert_array_equal(
+        pareto_efficient_mask(frame),
+        np.array([False, True, True, True]),
+    )
+
+
+def test_pareto_mask_rejects_missing_objective_values():
+    frame = pd.DataFrame({objective: [0.0] for objective in CREDIBLE_PARETO_OBJECTIVES})
+    frame.loc[0, "max_ramp_kw"] = np.nan
+
+    with np.testing.assert_raises_regex(ValueError, "must all be finite"):
+        pareto_efficient_mask(frame)
+
+
+def test_fairness_tradeoff_keeps_a_network_dominated_controller_on_frontier():
+    frame = pd.DataFrame(
+        {objective: [0.0, 0.0] for objective in CREDIBLE_PARETO_OBJECTIVES}
+    )
+    frame.loc[0, "transformer_export_peak_kw"] = 9.0
+    frame.loc[1, "transformer_export_peak_kw"] = 10.0
+    frame.loc[0, "tenant_cost_delta_vs_fair_leg_chf_per_load_kwh"] = 0.02
+
+    np.testing.assert_array_equal(pareto_efficient_mask(frame), [True, True])
