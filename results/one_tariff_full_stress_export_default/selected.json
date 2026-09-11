@@ -1,0 +1,44 @@
+{
+  "fair_leg": {
+    "family": {
+      "policy_id": 4
+    },
+    "voltage_family": {
+      "policy_id": 31
+    },
+    "near_optimal_policy_ids": [
+      4,
+      5,
+      6,
+      7,
+      28,
+      31
+    ],
+    "base": {
+      "export_cap_kw": 1000.0,
+      "charge_after_hour": 13.0
+    }
+  },
+  "stress_export_default": {
+    "family": {
+      "policy_id": 23
+    },
+    "voltage_family": {
+      "policy_id": 23
+    },
+    "near_optimal_policy_ids": [
+      3,
+      5,
+      22,
+      23,
+      24,
+      25,
+      26,
+      29
+    ],
+    "base": {
+      "export_cap_kw": 1000.0,
+      "charge_after_hour": 11.0
+    }
+  }
+}

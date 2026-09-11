@@ -1,0 +1,48 @@
+{
+  "finalist": "kva_peak_ratchet",
+  "eligible": [
+    "fair_leg_passthrough",
+    "tou_evening_import",
+    "kva_charge_class_neutral",
+    "kva_peak_ratchet",
+    "kw_peak_ratchet",
+    "own_peak_ratchet",
+    "tenant_floor"
+  ],
+  "accepted": true,
+  "screens_by_tariff": {
+    "fair_leg": null,
+    "fair_leg_passthrough": true,
+    "stress_export_default": false,
+    "stress_export_tuned": false,
+    "stress_export_biting": false,
+    "stress_bidirectional": false,
+    "stress_tenant_exempt": false,
+    "stress_smoothed": false,
+    "tou_midday_export": false,
+    "tou_evening_import": true,
+    "kva_coincident_charge": false,
+    "kva_charge_class_neutral": true,
+    "kva_peak_ratchet": true,
+    "kw_peak_ratchet": true,
+    "loss_share_linear": false,
+    "loss_share_quadratic": false,
+    "voltage_level_exposure": false,
+    "voltage_sensitivity": false,
+    "staggered_class_tou": false,
+    "own_peak_ratchet": true,
+    "own_deviation_charge": false,
+    "reverse_flow_charge": false,
+    "two_part_volumetric": false,
+    "two_part_fixed": false,
+    "tenant_floor": true,
+    "stress_funds_tenant_floor": false,
+    "stress_class_neutral": false,
+    "joint_system_cost": false,
+    "subsidy_ablation": false
+  },
+  "revenue_inadequate": [
+    "subsidy_ablation"
+  ],
+  "rule": "Lowest validation export peak among candidates passing declared screens; if none pass, lowest peak is tested as a diagnostic, not a recommendation."
+}

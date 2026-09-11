@@ -259,19 +259,66 @@ weather and continue calling it a holdout.
 
 ## Outputs and interpretation
 
+The full-bank test phase evaluates every tariff, including `fair_leg`, with
+seven declared roles on paired test weather: shared
+`fair_leg/default_base`, tariff-specific `fixed_base` and `tuned_base`, shared
+`fair_leg/tuned_family`, tariff-specific `tuned_family`, `voltage_family`, and
+`voltage_off_matched`. The two fair-LEG reference trajectories are computed
+once, and all physical trajectories are cached by controller parameters,
+split, and weather. For `fair_leg`, the reference and tariff-specific
+`tuned_family` roles point to the same evaluated cell. Test results do not
+change `selection.json` or either validation Pareto set.
+
 - `manifest.json`, `source/`: settings, seed roots, policy bank, and code snapshot.
 - `tuning.csv`, `selected.json`: household returns, winning IDs, near-optimal IDs.
 - `selection.json`: validation choice and whether it passed acceptance criteria.
-- `metrics.csv`, `summary.csv`, `paired_deltas.json`: per-weather metrics and
-  summaries; compute peaks per episode before averaging.
+- `metrics.csv`, `summary.csv`, `paired_deltas_by_tariff.json`: per-weather
+  metrics, summaries, and each tariff's test delta from tuned fair LEG; compute
+  peaks per episode before averaging.
 - `credible_response_candidates.csv`, `credible_response_frontier.csv`: all
   settlement-near-optimal controller responses and their validation Pareto set.
+- `cross_tariff_pareto.csv`: one Pareto mask across every credible validation
+  row, without grouping by tariff; never derive this file from test weather.
 - `household_settlements.csv`: all 18 households, actual load, and incidence.
 - `*_household_trace.csv`, `*_feeder_trace.csv`: illustrative test traces.
 - Audit outputs: `unilateral_deviations.csv`, `storage_diagnostics.csv`,
   `near_optimal_metrics.csv`, `audit_manifest.json`, and diagnostic NPZ files.
 - `official_score.txt` and `marginal_settlements.csv` are separately generated;
   the main experiment command does not create them.
+
+### Reading the full-bank top-three transformer plot
+
+The completed local run in
+`results/tariff_bank_full_20260911_0822` contains
+`transformer_draw_ramp_profiles_top3.png`. It compares the illustrative
+`tuned_family` feeder traces for the three exploratory held-out trade-off
+points listed in `test_pareto_shortlist.csv` and `TEST_PARETO_SHORTLIST.md`:
+`kva_peak_ratchet` with policy 31 (`instant_slow_stagger_1h`),
+`loss_share_quadratic` with the same policy 31, and `two_part_fixed` with
+policy 7 (`slow_stagger`). This held-out shortlist is diagnostic and must not
+replace the declared validation frontier or the outcome in `selection.json`.
+
+Read the plot as follows:
+
+- Each trace is the first of the 20 paired test episodes (`seed_index == 0`),
+  with 672 fifteen-minute intervals shown as seven elapsed days. It is an
+  illustrative weather week, not an average profile.
+- The upper panel plots grid draw as `max(transformer_kw, 0)`. A zero therefore
+  can mean net export, not zero feeder activity. Inspect the signed
+  `transformer_kw` column in each `*_tuned_family_feeder_trace.csv` to see
+  reverse flow; negative values are exports and positive values are imports.
+- The lower panel uses the official ramp definition
+  `abs(transformer_kw[t] - transformer_kw[t-1])`. It measures the full signed
+  transformer swing, so an import/export crossing can contribute to the ramp.
+- Peak labels are maxima within this one saved episode. They are not the
+  20-week mean peak metrics. For robust comparisons, filter `metrics.csv` to
+  `split == "test"` and the relevant `run`, or use `summary.csv`; the runner
+  computes each episode's peak before averaging across episodes.
+- The KVA-ratchet and loss-share curves coincide exactly because both selected
+  policy 31 and tariffs do not enter controller observations. Their settlement
+  formulas and household incidence differ, but their cached physical
+  trajectory is the same. The dotted loss-share curve is drawn over the solid
+  KVA curve solely to make that overlap visible.
 
 The controller sees no live price or neighbours. Reusing fixed-policy physical
 trajectories across tariffs is valid here because settlement does not feed back

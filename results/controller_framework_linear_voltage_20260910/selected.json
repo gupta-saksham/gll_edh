@@ -1,0 +1,131 @@
+{
+  "fair_leg": {
+    "family": {
+      "policy_id": 4
+    },
+    "voltage_family": {
+      "policy_id": 31
+    },
+    "near_optimal_policy_ids": [
+      4,
+      5,
+      6,
+      7,
+      28,
+      31
+    ],
+    "base": {
+      "export_cap_kw": 1000.0,
+      "charge_after_hour": 13.0
+    }
+  },
+  "export_30kw_0.05": {
+    "family": {
+      "policy_id": 5
+    },
+    "voltage_family": {
+      "policy_id": 29
+    },
+    "near_optimal_policy_ids": [
+      3,
+      5,
+      6,
+      22,
+      23,
+      25,
+      26,
+      28,
+      29,
+      31
+    ],
+    "base": {
+      "export_cap_kw": 1000.0,
+      "charge_after_hour": 11.0
+    }
+  },
+  "export_30kw_0.15": {
+    "family": {
+      "policy_id": 23
+    },
+    "voltage_family": {
+      "policy_id": 23
+    },
+    "near_optimal_policy_ids": [
+      3,
+      5,
+      22,
+      23,
+      24,
+      25,
+      26,
+      29
+    ],
+    "base": {
+      "export_cap_kw": 1000.0,
+      "charge_after_hour": 11.0
+    }
+  },
+  "export_30kw_0.3": {
+    "family": {
+      "policy_id": 11
+    },
+    "voltage_family": {
+      "policy_id": 17
+    },
+    "near_optimal_policy_ids": [
+      11
+    ],
+    "base": {
+      "export_cap_kw": 4.0,
+      "charge_after_hour": 11.0
+    }
+  },
+  "export_45kw_0.05": {
+    "family": {
+      "policy_id": 31
+    },
+    "voltage_family": {
+      "policy_id": 31
+    },
+    "near_optimal_policy_ids": [
+      28,
+      29,
+      31
+    ],
+    "base": {
+      "export_cap_kw": 1000.0,
+      "charge_after_hour": 11.0
+    }
+  },
+  "export_45kw_0.15": {
+    "family": {
+      "policy_id": 31
+    },
+    "voltage_family": {
+      "policy_id": 31
+    },
+    "near_optimal_policy_ids": [
+      28,
+      31
+    ],
+    "base": {
+      "export_cap_kw": 8.0,
+      "charge_after_hour": 11.0
+    }
+  },
+  "export_45kw_0.3": {
+    "family": {
+      "policy_id": 10
+    },
+    "voltage_family": {
+      "policy_id": 31
+    },
+    "near_optimal_policy_ids": [
+      10
+    ],
+    "base": {
+      "export_cap_kw": 8.0,
+      "charge_after_hour": 11.0
+    }
+  }
+}

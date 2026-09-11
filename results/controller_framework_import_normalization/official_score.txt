@@ -1,0 +1,26 @@
+                      export_pk_kW   draw_pk_kW      reverse      coincid       pk/avg      ramp_kW         sync         loss      curtail     selfcons          CHF        >1.05
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+fair_leg/base                 66.2          8.5          42%        0.777         3.61         16.5        +0.60        8.02%         1.8%          29%          311        8.32%
+fair_leg/submitted            61.4          9.4          46%        0.723         3.24         12.3        +0.65        7.15%         0.7%          29%          322        7.24%
+submitted/base                61.5          8.6          46%        0.814         3.31         43.2        +0.72        6.91%         2.6%          29%          308        6.92%
+submitted/submitted           58.2          8.4          46%        0.783         3.14         12.5        +0.71        6.78%         2.2%          30%          312        6.39%
+
+CHF/kWh consumed, by household type
+                            tenant      pv_only   pv_battery   large_flex       spread  tenant_import
+-----------------------------------------------------------------------------------------------------
+fair_leg/base               +0.223       -0.516      -13.565       -2.094        13.79            65%
+fair_leg/submitted          +0.223       -0.510-12740439.764       -5.639  12740439.99            67%
+submitted/base              +0.025       -0.465      -10.997       -1.412        11.02            64%
+submitted/submitted         +0.070       -0.464-36247305.767       -4.377  36247305.84            67%
+
+revenue adequacy: PASS (tariff collects 311 CHF at fixed behaviour vs 311)
+co-design premium: transformer_export_peak_kw +41.4%
+
+  solar exported at the worst moment        66.17 ->    58.19 kW   better
+  work squeezed into the peak interval       3.61 ->     3.14      better
+  worst sudden swing (herding)              16.54 ->    12.54 kW   better
+  everyone acting at once                    0.78 ->     0.78      worse
+  solar thrown away                          1.77 ->     2.18 %    worse
+  what the households earned               311.01 ->   312.16 CHF   same
+  what a tenant paid per kWh                 0.22 ->     0.07 CHF  better
+  cost base left to tenants                 64.97 ->    67.14 %    worse

@@ -14,4 +14,3 @@ venv/
 
 # Run artefacts
 *.parquet
-results/

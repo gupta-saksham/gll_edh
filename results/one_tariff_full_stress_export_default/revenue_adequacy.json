@@ -1,0 +1,10 @@
+{
+  "settlement_chf": {
+    "fair_leg": 286.26080322265625,
+    "stress_export_default": 286.26080322265625
+  },
+  "adequate": {
+    "fair_leg": true,
+    "stress_export_default": true
+  }
+}

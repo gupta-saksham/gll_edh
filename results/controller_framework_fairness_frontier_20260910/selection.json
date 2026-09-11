@@ -1,0 +1,6 @@
+{
+  "finalist": "export_30kw_0.3",
+  "eligible": [],
+  "accepted": false,
+  "rule": "Lowest validation export peak among candidates passing declared screens; if none pass, lowest peak is tested as a diagnostic, not a recommendation."
+}

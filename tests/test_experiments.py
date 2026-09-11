@@ -7,6 +7,8 @@ import pandas as pd
 from sandbox.controller import base_controller, passive_controller
 from sandbox.experiments import (
     CREDIBLE_PARETO_OBJECTIVES,
+    FULL_TEST_CELL_ROLES,
+    full_test_plan,
     household_load_kwh,
     pareto_efficient_mask,
     resettle,
@@ -162,3 +164,44 @@ def test_fairness_tradeoff_keeps_a_network_dominated_controller_on_frontier():
     frame.loc[0, "tenant_cost_delta_vs_fair_leg_chf_per_load_kwh"] = 0.02
 
     np.testing.assert_array_equal(pareto_efficient_mask(frame), [True, True])
+
+
+def test_full_test_plan_covers_every_tariff_and_reuses_reference_cells():
+    tariffs = {
+        "fair_leg": None,
+        "tariff_a": {"scenario_id": 0.0},
+        "tariff_b": {"scenario_id": 1.0},
+    }
+    selected = {
+        name: {
+            "base": {"export_cap_kw": float(index + 1)},
+            "family": {"policy_id": index},
+            "voltage_family": {"policy_id": index + 10},
+        }
+        for index, name in enumerate(tariffs)
+    }
+
+    specs, cells = full_test_plan(
+        tariffs,
+        selected,
+        {"export_cap_kw": 1000.0, "charge_after_hour": 0.0},
+    )
+    runs = [spec["run"] for spec in specs]
+
+    assert set(cells) == set(tariffs)
+    assert all(tuple(contract) == FULL_TEST_CELL_ROLES for contract in cells.values())
+    assert runs.count("fair_leg/default_base") == 1
+    assert runs.count("fair_leg/tuned_family") == 1
+    assert cells["fair_leg"]["reference_tuned_family"] == "fair_leg/tuned_family"
+    assert cells["fair_leg"]["tuned_family"] == "fair_leg/tuned_family"
+    for tariff in tariffs:
+        assert cells[tariff]["fixed_base"] == f"{tariff}/fixed_base"
+        assert cells[tariff]["tuned_base"] == f"{tariff}/tuned_base"
+        assert cells[tariff]["voltage_family"] == f"{tariff}/voltage_family"
+        assert cells[tariff]["voltage_off_matched"] == (
+            f"{tariff}/voltage_off_matched"
+        )
+
+    # Six unique fair-LEG runs (its two tuned-family roles share one), plus
+    # five tariff-specific runs for every additional tariff.
+    assert len(specs) == 6 + 5 * (len(tariffs) - 1)

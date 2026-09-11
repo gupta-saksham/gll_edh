@@ -1,0 +1,49 @@
+controller_family,candidate,policy_id,policy_name,parameters,train_mean_settlement_chf_per_agent,selected
+family,0,0.0,passive_pv,"{""policy_id"": 0}",22.00609588623047,False
+family,1,1.0,self_consumption,"{""policy_id"": 1}",26.722808837890625,False
+family,2,2.0,delay_09,"{""policy_id"": 2}",27.308307647705078,False
+family,3,3.0,delay_11,"{""policy_id"": 3}",27.66370391845703,False
+family,4,4.0,delay_13,"{""policy_id"": 4}",27.5145320892334,False
+family,5,5.0,stagger_11_1h,"{""policy_id"": 5}",27.6781005859375,False
+family,6,6.0,stagger_11_2h,"{""policy_id"": 6}",27.655994415283203,False
+family,7,7.0,slow_stagger,"{""policy_id"": 7}",27.45488739013672,False
+family,8,8.0,reserve_25,"{""policy_id"": 8}",27.427001953125,False
+family,9,9.0,reserve_50,"{""policy_id"": 9}",26.89863395690918,False
+family,10,10.0,cap_8,"{""policy_id"": 10}",27.19379425048828,False
+family,11,11.0,cap_4,"{""policy_id"": 11}",20.929981231689453,False
+family,12,12.0,cap_2,"{""policy_id"": 12}",12.09913444519043,False
+family,13,13.0,voltage_25,"{""policy_id"": 13}",27.54732894897461,False
+family,14,14.0,voltage_75,"{""policy_id"": 14}",27.40032196044922,False
+family,15,15.0,voltage_stagger,"{""policy_id"": 15}",27.630783081054688,False
+family,16,16.0,voltage_reserve,"{""policy_id"": 16}",27.297809600830078,False
+family,17,17.0,voltage_cap,"{""policy_id"": 17}",20.588165283203125,False
+family,18,18.0,smooth,"{""policy_id"": 18}",27.588499069213867,False
+family,19,19.0,grid_charge,"{""policy_id"": 19}",24.603363037109375,False
+family,20,20.0,battery_export,"{""policy_id"": 20}",26.11450958251953,False
+family,21,21.0,joint,"{""policy_id"": 21}",20.150226593017578,False
+family,22,22.0,instant_5,"{""policy_id"": 22}",27.652904510498047,False
+family,23,23.0,instant_10,"{""policy_id"": 23}",27.627124786376953,False
+family,24,24.0,instant_25,"{""policy_id"": 24}",27.54587173461914,False
+family,25,25.0,instant_stagger_1h_5,"{""policy_id"": 25}",27.688337326049805,False
+family,26,26.0,instant_stagger_1h_10,"{""policy_id"": 26}",27.677459716796875,False
+family,27,27.0,instant_stagger_1h_25,"{""policy_id"": 27}",27.60146713256836,False
+family,28,28.0,instant_stagger_2h_10,"{""policy_id"": 28}",27.705978393554688,False
+family,29,29.0,instant_stagger_1h_10_ref101,"{""policy_id"": 29}",27.692777633666992,False
+family,30,30.0,blend_stagger_1h,"{""policy_id"": 30}",27.55959701538086,False
+family,31,31.0,instant_slow_stagger_1h,"{""policy_id"": 31}",27.72909927368164,True
+base,0,,self_consumption,"{""charge_after_hour"": 0.0, ""export_cap_kw"": 1000.0}",26.574377059936523,False
+base,1,,self_consumption,"{""charge_after_hour"": 9.0, ""export_cap_kw"": 1000.0}",27.017013549804688,False
+base,2,,self_consumption,"{""charge_after_hour"": 11.0, ""export_cap_kw"": 1000.0}",27.372573852539062,True
+base,3,,self_consumption,"{""charge_after_hour"": 13.0, ""export_cap_kw"": 1000.0}",27.25109100341797,False
+base,4,,self_consumption,"{""charge_after_hour"": 0.0, ""export_cap_kw"": 8.0}",25.464954376220703,False
+base,5,,self_consumption,"{""charge_after_hour"": 9.0, ""export_cap_kw"": 8.0}",26.09038543701172,False
+base,6,,self_consumption,"{""charge_after_hour"": 11.0, ""export_cap_kw"": 8.0}",26.82897186279297,False
+base,7,,self_consumption,"{""charge_after_hour"": 13.0, ""export_cap_kw"": 8.0}",27.028261184692383,False
+base,8,,self_consumption,"{""charge_after_hour"": 0.0, ""export_cap_kw"": 4.0}",17.47355079650879,False
+base,9,,self_consumption,"{""charge_after_hour"": 9.0, ""export_cap_kw"": 4.0}",19.2376651763916,False
+base,10,,self_consumption,"{""charge_after_hour"": 11.0, ""export_cap_kw"": 4.0}",20.571613311767578,False
+base,11,,self_consumption,"{""charge_after_hour"": 13.0, ""export_cap_kw"": 4.0}",20.963306427001953,False
+base,12,,self_consumption,"{""charge_after_hour"": 0.0, ""export_cap_kw"": 2.0}",9.021727561950684,False
+base,13,,self_consumption,"{""charge_after_hour"": 9.0, ""export_cap_kw"": 2.0}",10.893240928649902,False
+base,14,,self_consumption,"{""charge_after_hour"": 11.0, ""export_cap_kw"": 2.0}",11.809937477111816,False
+base,15,,self_consumption,"{""charge_after_hour"": 13.0, ""export_cap_kw"": 2.0}",12.109283447265625,False

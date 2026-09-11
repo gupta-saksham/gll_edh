@@ -1,0 +1,102 @@
+{
+  "transformer_draw_peak_kw": {
+    "mean_delta": -1.0270118713378906,
+    "std_delta": 1.0002175459527733,
+    "se_delta": 0.22365544250384206
+  },
+  "transformer_export_peak_kw": {
+    "mean_delta": -3.9109708786010744,
+    "std_delta": 2.3685002867160687,
+    "se_delta": 0.5296127645824872
+  },
+  "reverse_flow_share": {
+    "mean_delta": 0.0013392865657806396,
+    "std_delta": 0.0018000172624538886,
+    "se_delta": 0.00040249609595199745
+  },
+  "losses_share": {
+    "mean_delta": -0.005704312957823277,
+    "std_delta": 0.0016901864144525216,
+    "se_delta": 0.0003779371717362471
+  },
+  "voltage_p99_pu": {
+    "mean_delta": -0.00797722339630127,
+    "std_delta": 0.0031313169614451135,
+    "se_delta": 0.0007001837584889361
+  },
+  "over_voltage_share": {
+    "mean_delta": -0.01095707977656275,
+    "std_delta": 0.003416940580670894,
+    "se_delta": 0.0007640511413457723
+  },
+  "coincidence_factor": {
+    "mean_delta": -0.04834858477115631,
+    "std_delta": 0.030095171077674194,
+    "se_delta": 0.00672948483241651
+  },
+  "peak_to_average": {
+    "mean_delta": -0.09586772918701172,
+    "std_delta": 0.13711672535906808,
+    "se_delta": 0.030660231875504547
+  },
+  "max_ramp_kw": {
+    "mean_delta": 3.8529632568359373,
+    "std_delta": 3.265091954040781,
+    "se_delta": 0.7300967562022805
+  },
+  "flex_synchrony": {
+    "mean_delta": -0.006961026787757873,
+    "std_delta": 0.016032842107706086,
+    "se_delta": 0.003585052482535181
+  },
+  "community_settlement_chf": {
+    "mean_delta": -2.960337829589844,
+    "std_delta": 3.231938767604387,
+    "se_delta": 0.7226834783480305
+  },
+  "curtailed_share": {
+    "mean_delta": 0.004375733692391806,
+    "std_delta": 0.002114957008288978,
+    "se_delta": 0.000472918764002374
+  },
+  "self_consumption_share": {
+    "mean_delta": 0.01782111098682379,
+    "std_delta": 0.007413437779266801,
+    "se_delta": 0.0016576950821405648
+  },
+  "cost_per_kwh_spread_chf": {
+    "mean_delta": -29464925.84284187,
+    "std_delta": 73966282.00631887,
+    "se_delta": 16539363.460904852
+  },
+  "tenant_cost_per_kwh_chf": {
+    "mean_delta": -0.23693217802839844,
+    "std_delta": 0.10493951568009827,
+    "se_delta": 0.02346518905866048
+  },
+  "pv_only_cost_per_kwh_chf": {
+    "mean_delta": 0.0817193867733821,
+    "std_delta": 0.10595784147313093,
+    "se_delta": 0.023692893628306722
+  },
+  "pv_battery_cost_per_kwh_chf": {
+    "mean_delta": 29464925.6552383,
+    "std_delta": 73966281.92940342,
+    "se_delta": 16539363.443706036
+  },
+  "large_flex_cost_per_kwh_chf": {
+    "mean_delta": -1.1293805067026021,
+    "std_delta": 2.060625805941062,
+    "se_delta": 0.4607699378274504
+  },
+  "owner_cost_per_kwh_chf": {
+    "mean_delta": 0.05664294456421173,
+    "std_delta": 0.30939106366004465,
+    "se_delta": 0.06918194499748247
+  },
+  "tenant_import_share": {
+    "mean_delta": 0.05329575538635254,
+    "std_delta": 0.01985868102431832,
+    "se_delta": 0.004440536071386092
+  }
+}

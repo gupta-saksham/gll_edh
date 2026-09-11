@@ -1,0 +1,28 @@
+{
+  "revision": "1b623eb724c762ac6a88bd05d8d0cc4c555a73d2",
+  "note": "Working tree implementation; source snapshot saved with results.",
+  "tariff": "local_voltage_price",
+  "tariff_params": {
+    "reference_voltage_pu": 1.0,
+    "reference_price_chf_per_kwh": 0.15,
+    "voltage_slope_chf_per_kwh_per_pu": 1.5,
+    "minimum_price_chf_per_kwh": 0.05,
+    "maximum_price_chf_per_kwh": 0.25
+  },
+  "price_formula": "clip(0.15 - 1.5 * (voltage_pu - 1.0), 0.05, 0.25)",
+  "balance": "Equal per-connection transfer matching fair LEG's interval total.",
+  "n_steps": 672,
+  "train_root": 11003,
+  "train_seeds": 4,
+  "test_root": 33013,
+  "test_seeds": 20,
+  "selected_family": {
+    "policy_id": 5,
+    "name": "stagger_11_1h"
+  },
+  "selected_base_params": {
+    "export_cap_kw": 1000.0,
+    "charge_after_hour": 11.0
+  },
+  "fixed_behaviour_revenue_delta_chf": -6.866455066756316e-06
+}

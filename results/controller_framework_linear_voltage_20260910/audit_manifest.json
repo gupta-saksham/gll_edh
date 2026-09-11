@@ -1,0 +1,17 @@
+{
+  "baseline_policy": 11,
+  "candidate_ids": [
+    1,
+    4,
+    15,
+    23,
+    31
+  ],
+  "deviation_root": 44021,
+  "deviation_seeds": 2,
+  "storage_root": 55001,
+  "storage_seeds": 4,
+  "near_optimal_root": 66029,
+  "near_optimal_seeds": 4,
+  "n_steps": 672
+}
